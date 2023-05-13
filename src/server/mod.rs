@@ -1,10 +1,11 @@
-use crate::x11;
+use crate::x11::{self, X11Server};
 use image::EncodableLayout;
-use std::error::Error;
+use std::{error::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
+use x11rb::{connection::Connection, rust_connection::RustConnection};
 
 struct ClientToServerMessage;
 impl ClientToServerMessage {
@@ -69,7 +70,7 @@ pub struct FrameBufferRectangle {
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) encoding_type: i32,
-    pub(crate) pixel_data: Vec<u8>
+    pub(crate) pixel_data: Vec<u8>,
 }
 
 pub struct FrameBufferUpdate {
@@ -79,20 +80,20 @@ pub struct FrameBufferUpdate {
     pub(crate) frame_buffer: Vec<FrameBufferRectangle>,
 }
 
-enum WindowManager<'a> {
-    X11(&'a x11::X11Server),
+pub enum WindowManager {
+    X11(X11Server),
     _WIN32(u8),
 }
 
-struct VNCServer {
+struct RFBServer {
     protocol_version: [u8; 12],
     supported_security_types_length: u8,
     supported_security_types: [u8; 2],
 }
 
-impl VNCServer {
-    fn init() -> VNCServer {
-        VNCServer {
+impl RFBServer {
+    fn init() -> RFBServer {
+        RFBServer {
             protocol_version: String::from("RFB 003.008\n").as_bytes().try_into().unwrap(),
             supported_security_types_length: 1,
             supported_security_types: [1, 2], /* SECURITY TYPE 0 IS INVALID */
@@ -122,26 +123,33 @@ async fn write_framebuffer_update_message(client: &mut TcpStream, frame_buffer: 
         client.write_u16(framebuffer.width).await.unwrap();
         client.write_u16(framebuffer.height).await.unwrap();
         client.write_i32(framebuffer.encoding_type).await.unwrap();
-        client.write(framebuffer.pixel_data.as_bytes()).await.unwrap();
+        client
+            .write(framebuffer.pixel_data.as_bytes())
+            .await
+            .unwrap();
     }
 }
 
 async fn process_clientserver_message(
     client: &mut TcpStream,
     message: &[u8],
-    wm: WindowManager<'_>,
+    wm: Arc<WindowManager>,
 ) {
     match message[0] {
         ClientToServerMessage::SET_PIXEL_FORMAT => {
             let _pixelformat_request: &[u8] = &message[4..];
             /* SET PIXEL FORMAT IN FUTURE RELEASES */
 
-            match wm {
+            match wm.as_ref() {
                 WindowManager::_WIN32(_win32_server) => {}
                 WindowManager::X11(x11_server) => {
                     write_framebuffer_update_message(
                         client,
-                        x11::fullscreen_framebuffer_update(&x11_server, 0, RFBEncodingType::RAW),
+                        x11::fullscreen_framebuffer_update(
+                            &x11_server,
+                            x11_server.displays[0].clone(),
+                            RFBEncodingType::RAW,
+                        ),
                     )
                     .await;
                 }
@@ -157,72 +165,63 @@ async fn process_clientserver_message(
             let width: u16 = ((message[6] as u16) << 8) | message[7] as u16;
             let height: u16 = ((message[8] as u16) << 8) | message[9] as u16;
 
-            match wm {
+            match wm.as_ref() {
                 WindowManager::_WIN32(_win32_server) => {}
                 WindowManager::X11(x11_server) => {
                     write_framebuffer_update_message(
                         client,
                         x11::rectangle_framebuffer_update(
-                            &x11_server, 
-                            0, 
-                            RFBEncodingType::RAW, 
+                            &x11_server,
+                            x11_server.displays[0].clone(),
+                            RFBEncodingType::RAW,
                             x_position.try_into().unwrap(),
                             y_position.try_into().unwrap(),
                             width,
-                            height
+                            height,
                         ),
                     )
                     .await;
                 }
             }
         }
-        ClientToServerMessage::KEY_EVENT => {
-            
+        ClientToServerMessage::POINTER_EVENT => {
+            match wm.as_ref() {
+                WindowManager::_WIN32(_) => {},
+                WindowManager::X11(_) => {
+                    
+                },
+            }
         }
-        ClientToServerMessage::POINTER_EVENT => { 
-            
-        }
+        ClientToServerMessage::KEY_EVENT => {}
         ClientToServerMessage::CLIENT_CUT_TEXT => {}
         _ => {}
     }
 }
 
-async fn init_clientserver_handshake(mut client: TcpStream) {
-    /* PERSISTENT X11 CONNECTION TO PREVENT A ZILLION CONNECTIONS ON CLIENT EVENTS */
-    match x11::connect() {
-        Ok(x11_server) => {
-            loop {
-                let mut buffer: [u8; 512] = [0; 512];
-                match client.read(&mut buffer[..]).await {
-                    // Return value of `Ok(0)` signifies that the remote has close
-                    Ok(0) => {
-                        println!("Client Has Disconnected");
-                        return;
-                    }
-                    Ok(n) => {
-                        process_clientserver_message(
-                            &mut client,
-                            &buffer[..n],
-                            WindowManager::X11(&x11_server),
-                        )
-                        .await
-                    }
-                    Err(_) => {
-                        // Unexpected client error. There isn't much we can do
-                        // here so just stop processing.
-                        return;
-                    }
-                }
+async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
+    loop {
+        let mut buffer: [u8; 512] = [0; 512];
+        match client.read(&mut buffer[..]).await {
+            // Return value of `Ok(0)` signifies that the remote has close
+            Ok(0) => {
+                println!("Client Has Disconnected");
+                return;
+            }
+            Ok(n) => process_clientserver_message(&mut client, &buffer[..n], wm.clone()).await,
+            Err(_) => {
+                // Unexpected client error. There isn't much we can do
+                // here so just stop processing.
+                return;
             }
         }
-        Err(_) => {
-            println!("x11-server Connection Error");
-            return;
-        }
-    };
+    }
 }
 
-async fn write_serverinit_message(mut client: TcpStream, server_init: RFBServerInit) {
+async fn write_serverinit_message(
+    mut client: TcpStream,
+    server_init: RFBServerInit,
+    wm: Arc<WindowManager>,
+) {
     client
         .write_u16(server_init.framebuffer_width)
         .await
@@ -282,15 +281,25 @@ async fn write_serverinit_message(mut client: TcpStream, server_init: RFBServerI
         .unwrap();
 
     /* SERVER-INIT PROCESSING COMPLETE */
-    init_clientserver_handshake(client).await;
+    init_clientserver_handshake(client, wm).await;
 }
 
-async fn init_serverinit_handshake(client: TcpStream) {
-    /* X11-DISPLAYSTRUCT API */
-    write_serverinit_message(client, x11::get_display_struct(None, 0)).await;
+async fn init_serverinit_handshake(client: TcpStream, wm: Arc<WindowManager>) {
+    match wm.as_ref() {
+        WindowManager::_WIN32(_) => {}
+        WindowManager::X11(x11_server) => {
+            /* X11-DISPLAYSTRUCT API */
+            write_serverinit_message(
+                client,
+                x11::get_display_struct(x11_server, x11_server.displays[0].clone()),
+                wm,
+            )
+            .await;
+        }
+    }
 }
 
-async fn init_clientinit_handshake(mut client: TcpStream) {
+async fn init_clientinit_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     match client.read_u8().await.unwrap_or(0) {
         0 => {
             /* SHARED_FLAG = 0, DISCONNECT ALL OTHERS */
@@ -298,12 +307,16 @@ async fn init_clientinit_handshake(mut client: TcpStream) {
         }
         1.. => {
             /* SHARED_FLAG != 0, SHARE SCREEN WITH ALL CLIENTS */
-            init_serverinit_handshake(client).await;
+            init_serverinit_handshake(client, wm).await;
         }
     }
 }
 
-async fn init_securityresult_handshake(mut client: TcpStream, security_type: u8) {
+async fn init_securityresult_handshake(
+    mut client: TcpStream,
+    security_type: u8,
+    wm: Arc<WindowManager>,
+) {
     match security_type {
         0 | 3.. => {
             let rfb_error = create_rfb_error(String::from("Authentication Type not Supported"));
@@ -316,46 +329,44 @@ async fn init_securityresult_handshake(mut client: TcpStream, security_type: u8)
         1 => {
             /* HANDLE AUTHENTICATION TYPE NONE */
             client.write_u32(0).await.unwrap();
-            init_clientinit_handshake(client).await;
+            init_clientinit_handshake(client, wm).await;
         }
         2 => { /* HANDLE AUTHENTICATION TYPE VNC */ }
     }
 }
 
-async fn init_authentication_handshake(mut client: TcpStream) {
+async fn init_authentication_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     /* INITIATE SECURITY HANDSHAKE, VNC_SERVER CONSTANTS */
-    let vnc_server = VNCServer::init();
+    let rfb_server = RFBServer::init();
 
     /* SEND AVAILABLE SECURITY METHODS */
     client
-        .write_u8(vnc_server.supported_security_types_length)
+        .write_u8(rfb_server.supported_security_types_length)
         .await
         .unwrap();
     client
-        .write_u8(vnc_server.supported_security_types[0])
+        .write_u8(rfb_server.supported_security_types[0])
         .await
         .unwrap();
 
     /* READ CLIENT RESPONSE */
     match client.read_u8().await {
-        Ok(selected_type) => init_securityresult_handshake(client, selected_type).await,
+        Ok(selected_type) => init_securityresult_handshake(client, selected_type, wm).await,
         Err(_) => {
             client.shutdown().await.unwrap();
         }
     }
 }
 
-async fn init_handshake(mut client: TcpStream) {
-    //print!("Buffer: {}", String::from_utf8_lossy(buffer));
-
-    let vnc_server = VNCServer::init();
+async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
+    let rfb_server = RFBServer::init();
     let mut buf: [u8; 12] = [0; 12];
-    client.write(&vnc_server.protocol_version).await.unwrap();
+    client.write(&rfb_server.protocol_version).await.unwrap();
     match client.read_exact(&mut buf).await {
         Ok(protocol_index) => {
             if &buf[0..protocol_index] == b"RFB 003.008\n" {
                 println!("RFB Client agreed on V3.8");
-                init_authentication_handshake(client).await;
+                init_authentication_handshake(client, wm).await;
             } else {
                 let rfb_error = create_rfb_error(String::from("Version not Supported"));
                 client.write_u32(rfb_error.reason_length).await.unwrap();
@@ -372,15 +383,23 @@ async fn init_handshake(mut client: TcpStream) {
 }
 
 pub async fn create() -> Result<(), Box<dyn Error>> {
-    /* Create a Tokio TCP Listener on Free Port */
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
-
-    loop {
-        let (client, _) = listener.accept().await?;
-        tokio::spawn(async move {
-            // Handle The Client
-            println!("Connection Established: {:?}", client);
-            init_handshake(client).await;
-        });
+    /* PERSISTENT X11 CONNECTION TO PREVENT A ZILLION CONNECTIONS ON CLIENT EVENTS */
+    match x11::connect() {
+        Ok(wm_arc) => {
+            /* Create a Tokio TCP Listener on Free Port */
+            let listener = TcpListener::bind("127.0.0.1:8080").await?;
+            loop {
+                let (client, _) = listener.accept().await?;
+                let wm = Arc::clone(&wm_arc);
+                tokio::spawn(async move {
+                    // Handle The Client
+                    println!("Connection Established: {:?}", client);
+                    init_handshake(client, wm).await;
+                });
+            }
+        }
+        Err(_) => {
+            return Err(String::from("x11-server Connection Error").into());
+        }
     }
 }

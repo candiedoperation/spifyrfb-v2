@@ -1,36 +1,62 @@
+use std::sync::Arc;
+
 use crate::server::{
     self, FrameBufferRectangle, FrameBufferUpdate, PixelFormat, RFBEncodingType, RFBServerInit,
-    ServerToClientMessage,
+    ServerToClientMessage, WindowManager,
 };
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{self, ImageFormat},
+    protocol::xproto::{self, ImageFormat, Screen},
     rust_connection::{ConnectError, RustConnection},
 };
 
 pub struct X11Server {
-    connection: RustConnection,
-    screens: Vec<xproto::Screen>,
+    pub(crate) connection: RustConnection,
+    pub(crate) displays: Vec<xproto::Screen>,
 }
 
-pub fn get_display_struct(
-    x11_server_option: Option<X11Server>,
-    x11_screen_index: usize,
-) -> server::RFBServerInit {
-    let x11_screen: xproto::Screen;
-    let x11_server: X11Server;
+pub struct X11PointerEvent {
+    src_x: i16,
+    src_y: i16,
+    src_width: u16,
+    src_height: u16,
+    dst_x: i16,
+    dst_y: i16,
+}
 
-    match x11_server_option {
-        Some(x_server) => {
-            x11_server = x_server;
-            x11_screen = x11_server.screens[x11_screen_index].clone();
-        }
-        None => {
-            x11_server = connect().unwrap();
-            x11_screen = x11_server.screens[x11_screen_index].clone();
-        }
-    }
+pub fn warp_pointer(
+    x11_server: &X11Server,
+    x11_screen: Screen,
+    x11_pointer_event: X11PointerEvent,
+) {
+    /*
+        https://docs.rs/x11rb/latest/x11rb/protocol/xproto/fn.warp_pointer.html
+        If src_window is not XCB_NONE (TODO), the move will only take place if
+        the pointer is inside src_window and within the rectangle specified by
+        (src_x, src_y, src_width, src_height). The rectangle coordinates are rela
+        -tive to src_window.
 
+        If dst_window is not XCB_NONE (TODO), the pointer will be moved to
+        the offsets (dst_x, dst_y) relative to dst_window. If dst_window is
+        XCB_NONE (TODO), the pointer will be moved by the offsets (dst_x, dst_y)
+        relative to the current position of the pointer.
+    */
+
+    xproto::warp_pointer(
+        &x11_server.connection,
+        x11_screen.root,
+        x11_screen.root,
+        x11_pointer_event.src_x,
+        x11_pointer_event.src_y,
+        x11_pointer_event.src_width,
+        x11_pointer_event.src_height,
+        x11_pointer_event.dst_x,
+        x11_pointer_event.dst_y,
+    )
+    .unwrap();
+}
+
+pub fn get_display_struct(x11_server: &X11Server, x11_screen: Screen) -> server::RFBServerInit {
     RFBServerInit {
         framebuffer_width: x11_screen.width_in_pixels,
         framebuffer_height: x11_screen.height_in_pixels,
@@ -70,10 +96,9 @@ pub fn get_display_struct(
 
 pub fn fullscreen_framebuffer_update(
     x11_server: &X11Server,
-    x11_screen: usize,
+    x11_screen: Screen,
     encoding_type: i32,
 ) -> FrameBufferUpdate {
-    let x11_screen = &x11_server.screens[x11_screen];
     let x11_cookie = xproto::get_image(
         &x11_server.connection,
         ImageFormat::Z_PIXMAP,
@@ -123,14 +148,13 @@ pub fn fullscreen_framebuffer_update(
 
 pub fn rectangle_framebuffer_update(
     x11_server: &X11Server,
-    x11_screen: usize,
+    x11_screen: Screen,
     encoding_type: i32,
     x_position: i16,
     y_position: i16,
     width: u16,
-    height: u16
+    height: u16,
 ) -> FrameBufferUpdate {
-    let x11_screen = &x11_server.screens[x11_screen];
     let x11_cookie = xproto::get_image(
         &x11_server.connection,
         ImageFormat::Z_PIXMAP,
@@ -178,13 +202,13 @@ pub fn rectangle_framebuffer_update(
     }
 }
 
-pub fn connect() -> Result<X11Server, ConnectError> {
+pub fn connect() -> Result<Arc<WindowManager>, ConnectError> {
     match x11rb::connect(None) {
         Ok((x11_connection, _x11_screen_id)) => {
-            return Ok(X11Server {
-                screens: x11_connection.setup().clone().roots,
+            return Ok(Arc::new(WindowManager::X11(X11Server {
+                displays: x11_connection.setup().clone().roots,
                 connection: x11_connection,
-            });
+            })));
         }
         Err(x11_connect_error) => {
             return Err(x11_connect_error);
