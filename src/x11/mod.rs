@@ -193,7 +193,7 @@ pub fn rectangle_framebuffer_update(
         }
         _ => {}
     }
-
+    
     FrameBufferUpdate {
         message_type: ServerToClientMessage::FRAME_BUFFER_UPDATE,
         padding: 0,

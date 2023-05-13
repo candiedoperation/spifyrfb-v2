@@ -134,14 +134,14 @@ async fn write_framebuffer_update_message(
             .await
             .unwrap();
         client_tx
-            .write(framebuffer.pixel_data.as_bytes())
+            .write_all(framebuffer.pixel_data.as_bytes())
             .await
             .unwrap();
     }
 }
 
 async fn process_clientserver_message(
-    client_rx: &mut ReadHalf<'_>,
+    _client_rx: &mut ReadHalf<'_>,
     client_tx: &mut WriteHalf<'_>,
     message: &[u8],
     wm: Arc<WindowManager>,
@@ -155,20 +155,15 @@ async fn process_clientserver_message(
             match wm.as_ref() {
                 WindowManager::_WIN32(_win32_server) => {}
                 WindowManager::X11(x11_server) => {
-                    /* match wm.as_ref() {
-                        WindowManager::_WIN32(_win32_server) => {}
-                        WindowManager::X11(x11_server) => {
-                            write_framebuffer_update_message(
-                                client_tx,
-                                x11::fullscreen_framebuffer_update(
-                                    &x11_server,
-                                    x11_server.displays[0].clone(),
-                                    RFBEncodingType::RAW,
-                                ),
-                            )
-                            .await;
-                        }
-                    } */
+                    write_framebuffer_update_message(
+                        client_tx,
+                        x11::fullscreen_framebuffer_update(
+                            &x11_server,
+                            x11_server.displays[0].clone(),
+                            RFBEncodingType::RAW,
+                        ),
+                    )
+                    .await;
                 }
             }
         }
@@ -229,7 +224,7 @@ async fn process_clientserver_message(
 async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     let (mut client_rx, mut client_tx) = client.split();
     loop {
-        let mut buffer: [u8; 5120] = [0; 5120];
+        let mut buffer: [u8; 20] = [0; 20];
         match client_rx.read(&mut buffer[..]).await {
             // Return value of `Ok(0)` signifies that the remote has close
             Ok(0) => {
