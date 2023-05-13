@@ -16,10 +16,6 @@ pub struct X11Server {
 }
 
 pub struct X11PointerEvent {
-    pub(crate) src_x: i16,
-    pub(crate) src_y: i16,
-    pub(crate) src_width: u16,
-    pub(crate) src_height: u16,
     pub(crate) dst_x: i16,
     pub(crate) dst_y: i16,
 }
@@ -42,14 +38,18 @@ pub fn warp_pointer(
         relative to the current position of the pointer.
     */
 
+    let query_pointer_cookie =
+        xproto::query_pointer(&x11_server.connection, x11_screen.root.clone());
+
+    let query_pointer_cookie = query_pointer_cookie.unwrap().reply().unwrap();
     xproto::warp_pointer(
         &x11_server.connection,
-        x11_screen.root,
-        x11_screen.root,
-        x11_pointer_event.src_x,
-        x11_pointer_event.src_y,
-        x11_pointer_event.src_width,
-        x11_pointer_event.src_height,
+        query_pointer_cookie.root,
+        query_pointer_cookie.root,
+        0,
+        0,
+        0,
+        0,
         x11_pointer_event.dst_x,
         x11_pointer_event.dst_y,
     )

@@ -1,9 +1,12 @@
-use crate::x11::{self, X11Server, warp_pointer, X11PointerEvent};
+use crate::x11::{self, warp_pointer, X11PointerEvent, X11Server};
 use image::EncodableLayout;
 use std::{error::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
+    net::{
+        tcp::{ReadHalf, WriteHalf},
+        TcpListener, TcpStream,
+    },
 };
 
 struct ClientToServerMessage;
@@ -63,6 +66,7 @@ impl RFBEncodingType {
     pub const ZRLE: i32 = 16;
 }
 
+#[derive(Debug)]
 pub struct FrameBufferRectangle {
     pub(crate) x_position: u16,
     pub(crate) y_position: u16,
@@ -72,6 +76,7 @@ pub struct FrameBufferRectangle {
     pub(crate) pixel_data: Vec<u8>,
 }
 
+#[derive(Debug)]
 pub struct FrameBufferUpdate {
     pub(crate) message_type: u8,
     pub(crate) padding: u8,
@@ -108,21 +113,27 @@ fn create_rfb_error(reason_string: String) -> RFBError {
     }
 }
 
-async fn write_framebuffer_update_message(client: &mut TcpStream, frame_buffer: FrameBufferUpdate) {
-    client.write_u8(frame_buffer.message_type).await.unwrap();
-    client.write_u8(frame_buffer.padding).await.unwrap();
-    client
+async fn write_framebuffer_update_message(
+    client_tx: &mut WriteHalf<'_>,
+    frame_buffer: FrameBufferUpdate,
+) {
+    client_tx.write_u8(frame_buffer.message_type).await.unwrap();
+    client_tx.write_u8(frame_buffer.padding).await.unwrap();
+    client_tx
         .write_u16(frame_buffer.number_of_rectangles)
         .await
         .unwrap();
 
     for framebuffer in frame_buffer.frame_buffer {
-        client.write_u16(framebuffer.x_position).await.unwrap();
-        client.write_u16(framebuffer.y_position).await.unwrap();
-        client.write_u16(framebuffer.width).await.unwrap();
-        client.write_u16(framebuffer.height).await.unwrap();
-        client.write_i32(framebuffer.encoding_type).await.unwrap();
-        client
+        client_tx.write_u16(framebuffer.x_position).await.unwrap();
+        client_tx.write_u16(framebuffer.y_position).await.unwrap();
+        client_tx.write_u16(framebuffer.width).await.unwrap();
+        client_tx.write_u16(framebuffer.height).await.unwrap();
+        client_tx
+            .write_i32(framebuffer.encoding_type)
+            .await
+            .unwrap();
+        client_tx
             .write(framebuffer.pixel_data.as_bytes())
             .await
             .unwrap();
@@ -130,10 +141,12 @@ async fn write_framebuffer_update_message(client: &mut TcpStream, frame_buffer: 
 }
 
 async fn process_clientserver_message(
-    client: &mut TcpStream,
+    client_rx: &mut ReadHalf<'_>,
+    client_tx: &mut WriteHalf<'_>,
     message: &[u8],
     wm: Arc<WindowManager>,
 ) {
+    println!("Request: {:?}", message);
     match message[0] {
         ClientToServerMessage::SET_PIXEL_FORMAT => {
             let _pixelformat_request: &[u8] = &message[4..];
@@ -142,15 +155,20 @@ async fn process_clientserver_message(
             match wm.as_ref() {
                 WindowManager::_WIN32(_win32_server) => {}
                 WindowManager::X11(x11_server) => {
-                    write_framebuffer_update_message(
-                        client,
-                        x11::fullscreen_framebuffer_update(
-                            &x11_server,
-                            x11_server.displays[0].clone(),
-                            RFBEncodingType::RAW,
-                        ),
-                    )
-                    .await;
+                    /* match wm.as_ref() {
+                        WindowManager::_WIN32(_win32_server) => {}
+                        WindowManager::X11(x11_server) => {
+                            write_framebuffer_update_message(
+                                client_tx,
+                                x11::fullscreen_framebuffer_update(
+                                    &x11_server,
+                                    x11_server.displays[0].clone(),
+                                    RFBEncodingType::RAW,
+                                ),
+                            )
+                            .await;
+                        }
+                    } */
                 }
             }
         }
@@ -168,7 +186,7 @@ async fn process_clientserver_message(
                 WindowManager::_WIN32(_win32_server) => {}
                 WindowManager::X11(x11_server) => {
                     write_framebuffer_update_message(
-                        client,
+                        client_tx,
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_server.displays[0].clone(),
@@ -183,26 +201,25 @@ async fn process_clientserver_message(
                 }
             }
         }
-        ClientToServerMessage::POINTER_EVENT => {
-            match wm.as_ref() {
-                WindowManager::_WIN32(_) => {},
-                WindowManager::X11(x11_server) => {
-                    let dst_x = ((message[2] as i16) << 8) | message[3] as i16;
-                    let dst_y = ((message[4] as i16) << 8) | message[5] as i16;
-                    let x11_pointer_event = X11PointerEvent {
-                        src_x: 0,
-                        src_y: 0,
-                        src_width: 0,
-                        src_height: 0,
-                        dst_x,
-                        dst_y
-                    };
+        ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
+            WindowManager::_WIN32(_) => {}
+            WindowManager::X11(x11_server) => {
+                let dst_x = (((message[2] as u16) << 8) | message[3] as u16)
+                    .try_into()
+                    .unwrap();
+                let dst_y = (((message[4] as u16) << 8) | message[5] as u16)
+                    .try_into()
+                    .unwrap();
 
-                    /* SEND POINTER EVENT */
-                    warp_pointer(x11_server, x11_server.displays[0].clone(), x11_pointer_event);
-                },
+                let x11_pointer_event = X11PointerEvent { dst_x, dst_y };
+
+                warp_pointer(
+                    x11_server,
+                    x11_server.displays[0].clone(),
+                    x11_pointer_event,
+                );
             }
-        }
+        },
         ClientToServerMessage::KEY_EVENT => {}
         ClientToServerMessage::CLIENT_CUT_TEXT => {}
         _ => {}
@@ -210,18 +227,28 @@ async fn process_clientserver_message(
 }
 
 async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
+    let (mut client_rx, mut client_tx) = client.split();
     loop {
-        let mut buffer: [u8; 512] = [0; 512];
-        match client.read(&mut buffer[..]).await {
+        let mut buffer: [u8; 5120] = [0; 5120];
+        match client_rx.read(&mut buffer[..]).await {
             // Return value of `Ok(0)` signifies that the remote has close
             Ok(0) => {
                 println!("Client Has Disconnected");
                 return;
             }
-            Ok(n) => process_clientserver_message(&mut client, &buffer[..n], wm.clone()).await,
+            Ok(n) => {
+                process_clientserver_message(
+                    &mut client_rx,
+                    &mut client_tx,
+                    &buffer[..n],
+                    wm.clone(),
+                )
+                .await
+            }
             Err(_) => {
                 // Unexpected client error. There isn't much we can do
                 // here so just stop processing.
+                println!("Client Has Disconnected9");
                 return;
             }
         }
