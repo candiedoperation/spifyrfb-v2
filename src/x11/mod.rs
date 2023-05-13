@@ -16,12 +16,12 @@ pub struct X11Server {
 }
 
 pub struct X11PointerEvent {
-    src_x: i16,
-    src_y: i16,
-    src_width: u16,
-    src_height: u16,
-    dst_x: i16,
-    dst_y: i16,
+    pub(crate) src_x: i16,
+    pub(crate) src_y: i16,
+    pub(crate) src_width: u16,
+    pub(crate) src_height: u16,
+    pub(crate) dst_x: i16,
+    pub(crate) dst_y: i16,
 }
 
 pub fn warp_pointer(

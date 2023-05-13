@@ -1,11 +1,10 @@
-use crate::x11::{self, X11Server};
+use crate::x11::{self, X11Server, warp_pointer, X11PointerEvent};
 use image::EncodableLayout;
 use std::{error::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use x11rb::{connection::Connection, rust_connection::RustConnection};
 
 struct ClientToServerMessage;
 impl ClientToServerMessage {
@@ -187,8 +186,20 @@ async fn process_clientserver_message(
         ClientToServerMessage::POINTER_EVENT => {
             match wm.as_ref() {
                 WindowManager::_WIN32(_) => {},
-                WindowManager::X11(_) => {
-                    
+                WindowManager::X11(x11_server) => {
+                    let dst_x = ((message[2] as i16) << 8) | message[3] as i16;
+                    let dst_y = ((message[4] as i16) << 8) | message[5] as i16;
+                    let x11_pointer_event = X11PointerEvent {
+                        src_x: 0,
+                        src_y: 0,
+                        src_width: 0,
+                        src_height: 0,
+                        dst_x,
+                        dst_y
+                    };
+
+                    /* SEND POINTER EVENT */
+                    warp_pointer(x11_server, x11_server.displays[0].clone(), x11_pointer_event);
                 },
             }
         }
