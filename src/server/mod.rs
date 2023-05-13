@@ -143,13 +143,13 @@ async fn write_framebuffer_update_message(
 async fn process_clientserver_message(
     _client_rx: &mut ReadHalf<'_>,
     client_tx: &mut WriteHalf<'_>,
-    message: &[u8],
+    opcode: &[u8],
+    buffer: &[u8],
     wm: Arc<WindowManager>,
 ) {
-    println!("Request: {:?}", message);
-    match message[0] {
+    match opcode[0] {
         ClientToServerMessage::SET_PIXEL_FORMAT => {
-            let _pixelformat_request: &[u8] = &message[4..];
+            let _pixelformat_request: &[u8] = &buffer[4..];
             /* SET PIXEL FORMAT IN FUTURE RELEASES */
 
             match wm.as_ref() {
@@ -171,11 +171,11 @@ async fn process_clientserver_message(
             println!("Set Encodings Request");
         }
         ClientToServerMessage::FRAME_BUFFER_UPDATE_REQUEST => {
-            /* let incremental: u8 = message[1]; */
-            let x_position: u16 = ((message[2] as u16) << 8) | message[3] as u16;
-            let y_position: u16 = ((message[4] as u16) << 8) | message[5] as u16;
-            let width: u16 = ((message[6] as u16) << 8) | message[7] as u16;
-            let height: u16 = ((message[8] as u16) << 8) | message[9] as u16;
+            /* let incremental: u8 = message[0]; */
+            let x_position: u16 = ((buffer[1] as u16) << 8) | buffer[2] as u16;
+            let y_position: u16 = ((buffer[3] as u16) << 8) | buffer[4] as u16;
+            let width: u16 = ((buffer[5] as u16) << 8) | buffer[6] as u16;
+            let height: u16 = ((buffer[7] as u16) << 8) | buffer[8] as u16;
 
             match wm.as_ref() {
                 WindowManager::_WIN32(_win32_server) => {}
@@ -199,10 +199,10 @@ async fn process_clientserver_message(
         ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
             WindowManager::_WIN32(_) => {}
             WindowManager::X11(x11_server) => {
-                let dst_x = (((message[2] as u16) << 8) | message[3] as u16)
+                let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
                     .try_into()
                     .unwrap();
-                let dst_y = (((message[4] as u16) << 8) | message[5] as u16)
+                let dst_y = (((buffer[3] as u16) << 8) | buffer[4] as u16)
                     .try_into()
                     .unwrap();
 
@@ -224,21 +224,77 @@ async fn process_clientserver_message(
 async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     let (mut client_rx, mut client_tx) = client.split();
     loop {
-        let mut buffer: [u8; 20] = [0; 20];
-        match client_rx.read(&mut buffer[..]).await {
+        let mut opcode: [u8; 1] = [0; 1];
+        match client_rx.read(&mut opcode).await {
             // Return value of `Ok(0)` signifies that the remote has close
             Ok(0) => {
                 println!("Client Has Disconnected");
                 return;
             }
-            Ok(n) => {
-                process_clientserver_message(
-                    &mut client_rx,
-                    &mut client_tx,
-                    &buffer[..n],
-                    wm.clone(),
-                )
-                .await
+            Ok(_) => {
+                match opcode[0] {
+                    ClientToServerMessage::SET_PIXEL_FORMAT => {
+                        let mut buffer: [u8; 20] = [0; 20];
+                        client_rx.read_exact(&mut buffer).await.unwrap();
+                        process_clientserver_message(
+                            &mut client_rx,
+                            &mut client_tx,
+                            &opcode,
+                            &buffer,
+                            wm.clone(),
+                        )
+                        .await;
+                    }
+                    ClientToServerMessage::SET_ENCODINGS => {
+                        let mut buffer: [u8; 4] = [0; 4];
+                        client_rx.read_exact(&mut buffer).await.unwrap();
+                        process_clientserver_message(
+                            &mut client_rx,
+                            &mut client_tx,
+                            &opcode,
+                            &buffer,
+                            wm.clone(),
+                        )
+                        .await;
+                    }
+                    ClientToServerMessage::FRAME_BUFFER_UPDATE_REQUEST => {
+                        let mut buffer: [u8; 10] = [0; 10];
+                        client_rx.read_exact(&mut buffer).await.unwrap();
+                        process_clientserver_message(
+                            &mut client_rx,
+                            &mut client_tx,
+                            &opcode,
+                            &buffer,
+                            wm.clone(),
+                        )
+                        .await;
+                    }
+                    ClientToServerMessage::POINTER_EVENT => {
+                        let mut buffer: [u8; 6] = [0; 6];
+                        client_rx.read_exact(&mut buffer).await.unwrap();
+                        process_clientserver_message(
+                            &mut client_rx,
+                            &mut client_tx,
+                            &opcode,
+                            &buffer,
+                            wm.clone(),
+                        )
+                        .await;
+                    }
+                    ClientToServerMessage::KEY_EVENT => {
+                        let mut buffer: [u8; 8] = [0; 8];
+                        client_rx.read_exact(&mut buffer).await.unwrap();
+                        process_clientserver_message(
+                            &mut client_rx,
+                            &mut client_tx,
+                            &opcode,
+                            &buffer,
+                            wm.clone(),
+                        )
+                        .await;
+                    }
+                    _ => { /* EXCEPTION EVENT: CLIENT_CUT_TEXT */ }
+                }
             }
             Err(_) => {
                 // Unexpected client error. There isn't much we can do
