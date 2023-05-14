@@ -2,7 +2,7 @@ use crate::x11::{self, fire_pointer_event, X11PointerEvent, X11Server};
 use image::EncodableLayout;
 use std::{error::Error, sync::Arc};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{
         tcp::{ReadHalf, WriteHalf},
         TcpListener, TcpStream,
