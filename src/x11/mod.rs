@@ -45,8 +45,8 @@ pub fn fire_pointer_event(
 
     xtest::fake_input(
         &x11_server.connection, 
-        if x11_pointer_event.button_mask == 0 { xproto::BUTTON_RELEASE_EVENT } else { xproto::BUTTON_RELEASE_EVENT }, 
-        if x11_pointer_event.button_mask == 0 { 1 } else { x11_pointer_event.button_mask },
+        if x11_pointer_event.button_mask == 0 { xproto::BUTTON_RELEASE_EVENT } else { xproto::BUTTON_PRESS_EVENT }, 
+        if x11_pointer_event.button_mask == 0 { 3 } else { x11_pointer_event.button_mask },
         x11rb::CURRENT_TIME, 
         x11_screen.root.clone(),
         x11_pointer_event.dst_x, 
