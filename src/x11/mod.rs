@@ -32,7 +32,6 @@ pub fn fire_pointer_event(
     x11_screen: Screen,
     x11_pointer_event: X11PointerEvent,
 ) {
-    xtest::grab_control(&x11_server.connection, true).unwrap();
     xtest::fake_input(
         &x11_server.connection, 
         xproto::MOTION_NOTIFY_EVENT, 

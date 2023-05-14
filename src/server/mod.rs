@@ -117,26 +117,26 @@ async fn write_framebuffer_update_message(
     client_tx: &mut WriteHalf<'_>,
     frame_buffer: FrameBufferUpdate,
 ) {
-    client_tx.write_u8(frame_buffer.message_type).await.unwrap();
-    client_tx.write_u8(frame_buffer.padding).await.unwrap();
+    client_tx.write_u8(frame_buffer.message_type).await.unwrap_or(());
+    client_tx.write_u8(frame_buffer.padding).await.unwrap_or(());
     client_tx
         .write_u16(frame_buffer.number_of_rectangles)
         .await
-        .unwrap();
+        .unwrap_or(());
 
     for framebuffer in frame_buffer.frame_buffer {
-        client_tx.write_u16(framebuffer.x_position).await.unwrap();
-        client_tx.write_u16(framebuffer.y_position).await.unwrap();
-        client_tx.write_u16(framebuffer.width).await.unwrap();
-        client_tx.write_u16(framebuffer.height).await.unwrap();
+        client_tx.write_u16(framebuffer.x_position).await.unwrap_or(());
+        client_tx.write_u16(framebuffer.y_position).await.unwrap_or(());
+        client_tx.write_u16(framebuffer.width).await.unwrap_or(());
+        client_tx.write_u16(framebuffer.height).await.unwrap_or(());
         client_tx
             .write_i32(framebuffer.encoding_type)
             .await
-            .unwrap();
+            .unwrap_or(());
         client_tx
             .write_all(framebuffer.pixel_data.as_bytes())
             .await
-            .unwrap();
+            .unwrap_or(());
     }
 }
 
@@ -339,60 +339,60 @@ async fn write_serverinit_message(
     client
         .write_u16(server_init.framebuffer_width)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u16(server_init.framebuffer_height)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u8(server_init.server_pixelformat.bits_per_pixel)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u8(server_init.server_pixelformat.depth)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u8(server_init.server_pixelformat.big_endian_flag)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u8(server_init.server_pixelformat.true_color_flag)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u16(server_init.server_pixelformat.red_max)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u16(server_init.server_pixelformat.green_max)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u16(server_init.server_pixelformat.blue_max)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u8(server_init.server_pixelformat.red_shift)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u8(server_init.server_pixelformat.green_shift)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u8(server_init.server_pixelformat.blue_shift)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write(server_init.server_pixelformat.padding.as_bytes())
         .await
-        .unwrap();
-    client.write_u32(server_init.name_length).await.unwrap();
+        .unwrap_or(0);
+    client.write_u32(server_init.name_length).await.unwrap_or(());
     client
         .write(server_init.name_string.as_bytes())
         .await
-        .unwrap();
+        .unwrap_or(0);
 
     /* SERVER-INIT PROCESSING COMPLETE */
     init_clientserver_handshake(client, wm).await;
@@ -434,15 +434,15 @@ async fn init_securityresult_handshake(
     match security_type {
         0 | 3.. => {
             let rfb_error = create_rfb_error(String::from("Authentication Type not Supported"));
-            client.write_u32(rfb_error.reason_length).await.unwrap();
+            client.write_u32(rfb_error.reason_length).await.unwrap_or(());
             client
                 .write(rfb_error.reason_string.as_bytes())
                 .await
-                .unwrap();
+                .unwrap_or(0);
         }
         1 => {
             /* HANDLE AUTHENTICATION TYPE NONE */
-            client.write_u32(0).await.unwrap();
+            client.write_u32(0).await.unwrap_or(());
             init_clientinit_handshake(client, wm).await;
         }
         2 => { /* HANDLE AUTHENTICATION TYPE VNC */ }
@@ -457,17 +457,17 @@ async fn init_authentication_handshake(mut client: TcpStream, wm: Arc<WindowMana
     client
         .write_u8(rfb_server.supported_security_types_length)
         .await
-        .unwrap();
+        .unwrap_or(());
     client
         .write_u8(rfb_server.supported_security_types[0])
         .await
-        .unwrap();
+        .unwrap_or(());
 
     /* READ CLIENT RESPONSE */
     match client.read_u8().await {
         Ok(selected_type) => init_securityresult_handshake(client, selected_type, wm).await,
         Err(_) => {
-            client.shutdown().await.unwrap();
+            client.shutdown().await.unwrap_or(());
         }
     }
 }
@@ -475,7 +475,7 @@ async fn init_authentication_handshake(mut client: TcpStream, wm: Arc<WindowMana
 async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     let rfb_server = RFBServer::init();
     let mut buf: [u8; 12] = [0; 12];
-    client.write(&rfb_server.protocol_version).await.unwrap();
+    client.write(&rfb_server.protocol_version).await.unwrap_or(0);
     match client.read_exact(&mut buf).await {
         Ok(protocol_index) => {
             if &buf[0..protocol_index] == b"RFB 003.008\n" {
@@ -483,15 +483,15 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
                 init_authentication_handshake(client, wm).await;
             } else {
                 let rfb_error = create_rfb_error(String::from("Version not Supported"));
-                client.write_u32(rfb_error.reason_length).await.unwrap();
+                client.write_u32(rfb_error.reason_length).await.unwrap_or(());
                 client
                     .write(rfb_error.reason_string.as_bytes())
                     .await
-                    .unwrap();
+                    .unwrap_or(0);
             }
         }
         Err(_) => {
-            client.shutdown().await.unwrap();
+            client.shutdown().await.unwrap_or(());
         }
     }
 }
