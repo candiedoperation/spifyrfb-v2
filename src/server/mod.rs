@@ -234,7 +234,7 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
             Ok(_) => {
                 match opcode[0] {
                     ClientToServerMessage::SET_PIXEL_FORMAT => {
-                        let mut buffer: [u8; 20] = [0; 20];
+                        let mut buffer: [u8; 19] = [0; 19];
                         client_rx.read_exact(&mut buffer).await.unwrap();
                         process_clientserver_message(
                             &mut client_rx,
@@ -246,7 +246,7 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                         .await;
                     }
                     ClientToServerMessage::SET_ENCODINGS => {
-                        let mut buffer: [u8; 4] = [0; 4];
+                        let mut buffer: [u8; 3] = [0; 3];
                         client_rx.read_exact(&mut buffer).await.unwrap();
                         process_clientserver_message(
                             &mut client_rx,
@@ -258,7 +258,7 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                         .await;
                     }
                     ClientToServerMessage::FRAME_BUFFER_UPDATE_REQUEST => {
-                        let mut buffer: [u8; 10] = [0; 10];
+                        let mut buffer: [u8; 9] = [0; 9];
                         client_rx.read_exact(&mut buffer).await.unwrap();
                         process_clientserver_message(
                             &mut client_rx,
@@ -270,7 +270,7 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                         .await;
                     }
                     ClientToServerMessage::POINTER_EVENT => {
-                        let mut buffer: [u8; 6] = [0; 6];
+                        let mut buffer: [u8; 5] = [0; 5];
                         client_rx.read_exact(&mut buffer).await.unwrap();
                         process_clientserver_message(
                             &mut client_rx,
@@ -282,7 +282,7 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                         .await;
                     }
                     ClientToServerMessage::KEY_EVENT => {
-                        let mut buffer: [u8; 8] = [0; 8];
+                        let mut buffer: [u8; 7] = [0; 7];
                         client_rx.read_exact(&mut buffer).await.unwrap();
                         process_clientserver_message(
                             &mut client_rx,
