@@ -32,6 +32,7 @@ pub fn fire_pointer_event(
     x11_screen: Screen,
     x11_pointer_event: X11PointerEvent,
 ) {
+    println!("Button_Mask: {}", x11_pointer_event.button_mask);
     xtest::fake_input(
         &x11_server.connection, 
         xproto::MOTION_NOTIFY_EVENT, 
