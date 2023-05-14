@@ -32,6 +32,7 @@ pub fn fire_pointer_event(
     x11_screen: Screen,
     x11_pointer_event: X11PointerEvent,
 ) {
+    xtest::grab_control(&x11_server.connection, true).unwrap();
     xtest::fake_input(
         &x11_server.connection, 
         xproto::MOTION_NOTIFY_EVENT, 
@@ -44,7 +45,7 @@ pub fn fire_pointer_event(
     ).unwrap();
 
     xtest::fake_input(
-        &x11_server.connection, 
+        &x11_server.connection,
         if x11_pointer_event.button_mask == 0 { xproto::BUTTON_RELEASE_EVENT } else { xproto::BUTTON_PRESS_EVENT }, 
         if x11_pointer_event.button_mask == 0 { 3 } else { x11_pointer_event.button_mask },
         x11rb::CURRENT_TIME, 
@@ -53,6 +54,8 @@ pub fn fire_pointer_event(
         x11_pointer_event.dst_y, 
         0
     ).unwrap();
+
+    println!("Button_Mask: {}", x11_pointer_event.button_mask);
 }
 
 pub fn get_display_struct(x11_server: &X11Server, x11_screen: Screen) -> server::RFBServerInit {

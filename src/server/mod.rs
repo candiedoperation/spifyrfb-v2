@@ -199,7 +199,6 @@ async fn process_clientserver_message(
         ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
             WindowManager::_WIN32(_) => {}
             WindowManager::X11(x11_server) => {
-                println!("BFR: {:?}", buffer);
                 let mut button_mask = buffer[0];
                 let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
                     .try_into()
