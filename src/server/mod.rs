@@ -1,8 +1,8 @@
-use crate::x11::{self, warp_pointer, X11PointerEvent, X11Server};
+use crate::x11::{self, fire_pointer_event, X11PointerEvent, X11Server};
 use image::EncodableLayout;
 use std::{error::Error, sync::Arc};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt, BufReader},
     net::{
         tcp::{ReadHalf, WriteHalf},
         TcpListener, TcpStream,
@@ -199,6 +199,7 @@ async fn process_clientserver_message(
         ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
             WindowManager::_WIN32(_) => {}
             WindowManager::X11(x11_server) => {
+                let button_mask = buffer[0];
                 let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
                     .try_into()
                     .unwrap();
@@ -206,9 +207,8 @@ async fn process_clientserver_message(
                     .try_into()
                     .unwrap();
 
-                let x11_pointer_event = X11PointerEvent { dst_x, dst_y };
-
-                warp_pointer(
+                let x11_pointer_event = X11PointerEvent { dst_x, dst_y, button_mask };
+                fire_pointer_event(
                     x11_server,
                     x11_server.displays[0].clone(),
                     x11_pointer_event,
@@ -225,7 +225,7 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
     let (mut client_rx, mut client_tx) = client.split();
     loop {
         let mut opcode: [u8; 1] = [0; 1];
-        match client_rx.read(&mut opcode).await {
+        match client_rx.read_exact(&mut opcode).await {
             // Return value of `Ok(0)` signifies that the remote has close
             Ok(0) => {
                 println!("Client Has Disconnected");

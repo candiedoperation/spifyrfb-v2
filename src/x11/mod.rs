@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+};
 
 use crate::server::{
     self, FrameBufferRectangle, FrameBufferUpdate, PixelFormat, RFBEncodingType, RFBServerInit,
@@ -6,7 +8,11 @@ use crate::server::{
 };
 use x11rb::{
     connection::Connection,
-    protocol::xproto::{self, ImageFormat, Screen},
+    protocol::{
+        xproto::{
+            self, EventMask, ImageFormat, Screen,
+        }, xtest,
+    },
     rust_connection::{ConnectError, RustConnection},
 };
 
@@ -18,42 +24,35 @@ pub struct X11Server {
 pub struct X11PointerEvent {
     pub(crate) dst_x: i16,
     pub(crate) dst_y: i16,
+    pub(crate) button_mask: u8,
 }
 
-pub fn warp_pointer(
+pub fn fire_pointer_event(
     x11_server: &X11Server,
     x11_screen: Screen,
     x11_pointer_event: X11PointerEvent,
 ) {
-    /*
-        https://docs.rs/x11rb/latest/x11rb/protocol/xproto/fn.warp_pointer.html
-        If src_window is not XCB_NONE (TODO), the move will only take place if
-        the pointer is inside src_window and within the rectangle specified by
-        (src_x, src_y, src_width, src_height). The rectangle coordinates are rela
-        -tive to src_window.
+    xtest::fake_input(
+        &x11_server.connection, 
+        xproto::MOTION_NOTIFY_EVENT, 
+        false.into(), 
+        x11rb::CURRENT_TIME, 
+        x11_screen.root.clone(), 
+        x11_pointer_event.dst_x, 
+        x11_pointer_event.dst_y, 
+        0
+    ).unwrap();
 
-        If dst_window is not XCB_NONE (TODO), the pointer will be moved to
-        the offsets (dst_x, dst_y) relative to dst_window. If dst_window is
-        XCB_NONE (TODO), the pointer will be moved by the offsets (dst_x, dst_y)
-        relative to the current position of the pointer.
-    */
-
-    let query_pointer_cookie =
-        xproto::query_pointer(&x11_server.connection, x11_screen.root.clone());
-
-    let query_pointer_cookie = query_pointer_cookie.unwrap().reply().unwrap();
-    xproto::warp_pointer(
-        &x11_server.connection,
-        query_pointer_cookie.root,
-        query_pointer_cookie.root,
-        0,
-        0,
-        0,
-        0,
-        x11_pointer_event.dst_x,
-        x11_pointer_event.dst_y,
-    )
-    .unwrap();
+    xtest::fake_input(
+        &x11_server.connection, 
+        if x11_pointer_event.button_mask == 0 { xproto::BUTTON_RELEASE_EVENT } else { xproto::BUTTON_PRESS_EVENT }, 
+        if x11_pointer_event.button_mask == 0 { 1 } else { x11_pointer_event.button_mask },
+        x11rb::CURRENT_TIME, 
+        x11_screen.root.clone(),
+        x11_pointer_event.dst_x, 
+        x11_pointer_event.dst_y, 
+        0
+    ).unwrap();
 }
 
 pub fn get_display_struct(x11_server: &X11Server, x11_screen: Screen) -> server::RFBServerInit {
@@ -193,7 +192,7 @@ pub fn rectangle_framebuffer_update(
         }
         _ => {}
     }
-    
+
     FrameBufferUpdate {
         message_type: ServerToClientMessage::FRAME_BUFFER_UPDATE,
         padding: 0,
