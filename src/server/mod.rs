@@ -199,7 +199,7 @@ async fn process_clientserver_message(
         ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
             WindowManager::_WIN32(_) => {}
             WindowManager::X11(x11_server) => {
-                let button_mask = buffer[0];
+                let mut button_mask = buffer[0];
                 let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
                     .try_into()
                     .unwrap();
@@ -207,7 +207,31 @@ async fn process_clientserver_message(
                     .try_into()
                     .unwrap();
 
-                let x11_pointer_event = X11PointerEvent { dst_x, dst_y, button_mask };
+                /*
+                    RFB BUTTON MASKS (Observed):
+                    BUTTON_UP:     0b00000000 = 0d0
+                    BUTTON_LEFT:   0b00000001 = 0d1
+                    BUTTON_MIDDLE: 0b00000010 = 0d2
+                    BUTTON_RIGHT:  0b00000100 = 0d4
+                    BTN_SCROLLUP:  0b00001000 = 0d8
+                    BTN_SCROLLDN:  0b00010000 = 0d16
+                */
+
+                button_mask = match button_mask {
+                    0 => 0,
+                    1 => 1,
+                    2 => 2,
+                    4 => 3,
+                    8 => 4,
+                    16 => 5,
+                    _ => 0,
+                };
+
+                let x11_pointer_event = X11PointerEvent {
+                    dst_x,
+                    dst_y,
+                    button_mask,
+                };
                 fire_pointer_event(
                     x11_server,
                     x11_server.displays[0].clone(),
