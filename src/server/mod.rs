@@ -199,13 +199,14 @@ async fn process_clientserver_message(
         ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
             WindowManager::_WIN32(_) => {}
             WindowManager::X11(x11_server) => {
+                println!("BFR: {:?}", buffer);
                 let mut button_mask = buffer[0];
                 let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
                     .try_into()
-                    .unwrap();
+                    .unwrap_or(0);
                 let dst_y = (((buffer[3] as u16) << 8) | buffer[4] as u16)
                     .try_into()
-                    .unwrap();
+                    .unwrap_or(0);
 
                 /*
                     RFB BUTTON MASKS (Observed):
@@ -232,6 +233,7 @@ async fn process_clientserver_message(
                     dst_y,
                     button_mask,
                 };
+
                 fire_pointer_event(
                     x11_server,
                     x11_server.displays[0].clone(),
