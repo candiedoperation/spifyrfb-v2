@@ -1,5 +1,3 @@
-mod keycodes;
-
 use crate::x11::{self, fire_pointer_event, X11PointerEvent, X11Server, fire_key_event, X11KeyEvent};
 use image::EncodableLayout;
 use std::{error::Error, sync::Arc};
@@ -253,14 +251,14 @@ async fn process_clientserver_message(
         },
         ClientToServerMessage::KEY_EVENT => {
             let down_flag: u8 = buffer[0];
-            let key: u32 = (buffer[3] as u32) << 24
+            let key_sym: u32 = (buffer[3] as u32) << 24
                 | (buffer[4] as u32) << 16
                 | (buffer[5] as u32) << 8
                 | (buffer[6] as u32);
 
             let x11_keyevent = X11KeyEvent {
                 key_down: down_flag,
-                key_pressed: keycodes::get_x11_keycode(key)
+                key_sym
             };
 
             match wm.as_ref() {

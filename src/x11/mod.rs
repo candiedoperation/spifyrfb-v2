@@ -2,6 +2,7 @@ use std::{
     sync::Arc,
 };
 
+mod keycodes;
 use crate::server::{
     self, FrameBufferRectangle, FrameBufferUpdate, PixelFormat, RFBEncodingType, RFBServerInit,
     ServerToClientMessage, WindowManager,
@@ -16,6 +17,8 @@ use x11rb::{
     rust_connection::{ConnectError, RustConnection},
 };
 
+use self::keycodes::get_x11_keycode;
+
 pub struct X11Server {
     pub(crate) connection: RustConnection,
     pub(crate) displays: Vec<xproto::Screen>,
@@ -29,7 +32,7 @@ pub struct X11PointerEvent {
 
 pub struct X11KeyEvent {
     pub(crate) key_down: u8,
-    pub(crate) key_pressed: u8
+    pub(crate) key_sym: u32
 }
 
 fn parse_keybutmask(mask: KeyButMask) -> u8 {
@@ -50,9 +53,9 @@ pub fn fire_key_event(
 ) {
     xtest::fake_input(
         &x11_server.connection,
-        if x11_keyevent.key_down == 0 { xproto::KEY_RELEASE_EVENT } else { xproto::KEY_RELEASE_EVENT }, 
-        x11_keyevent.key_pressed, 
-        x11rb::CURRENT_TIME, 
+        if x11_keyevent.key_down == 0 { xproto::KEY_RELEASE_EVENT } else { xproto::KEY_PRESS_EVENT }, 
+        get_x11_keycode(x11_keyevent.key_sym), 
+        x11rb::CURRENT_TIME,
         x11_screen.root,
         0, 
         0, 
