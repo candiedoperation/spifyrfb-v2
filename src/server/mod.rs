@@ -1,4 +1,6 @@
-use crate::x11::{self, fire_pointer_event, X11PointerEvent, X11Server};
+mod keycodes;
+
+use crate::x11::{self, fire_pointer_event, X11PointerEvent, X11Server, fire_key_event, X11KeyEvent};
 use image::EncodableLayout;
 use std::{error::Error, sync::Arc};
 use tokio::{
@@ -117,7 +119,10 @@ async fn write_framebuffer_update_message(
     client_tx: &mut WriteHalf<'_>,
     frame_buffer: FrameBufferUpdate,
 ) {
-    client_tx.write_u8(frame_buffer.message_type).await.unwrap_or(());
+    client_tx
+        .write_u8(frame_buffer.message_type)
+        .await
+        .unwrap_or(());
     client_tx.write_u8(frame_buffer.padding).await.unwrap_or(());
     client_tx
         .write_u16(frame_buffer.number_of_rectangles)
@@ -125,8 +130,14 @@ async fn write_framebuffer_update_message(
         .unwrap_or(());
 
     for framebuffer in frame_buffer.frame_buffer {
-        client_tx.write_u16(framebuffer.x_position).await.unwrap_or(());
-        client_tx.write_u16(framebuffer.y_position).await.unwrap_or(());
+        client_tx
+            .write_u16(framebuffer.x_position)
+            .await
+            .unwrap_or(());
+        client_tx
+            .write_u16(framebuffer.y_position)
+            .await
+            .unwrap_or(());
         client_tx.write_u16(framebuffer.width).await.unwrap_or(());
         client_tx.write_u16(framebuffer.height).await.unwrap_or(());
         client_tx
@@ -240,7 +251,29 @@ async fn process_clientserver_message(
                 );
             }
         },
-        ClientToServerMessage::KEY_EVENT => {}
+        ClientToServerMessage::KEY_EVENT => {
+            let down_flag: u8 = buffer[0];
+            let key: u32 = (buffer[3] as u32) << 24
+                | (buffer[4] as u32) << 16
+                | (buffer[5] as u32) << 8
+                | (buffer[6] as u32);
+
+            let x11_keyevent = X11KeyEvent {
+                key_down: down_flag,
+                key_pressed: keycodes::get_x11_keycode(key)
+            };
+
+            match wm.as_ref() {
+                WindowManager::_WIN32(_) => {}
+                WindowManager::X11(x11_server) => {
+                    fire_key_event(
+                        &x11_server,
+                        x11_server.displays[0].clone(), 
+                        x11_keyevent
+                    );
+                }
+            }
+        }
         ClientToServerMessage::CLIENT_CUT_TEXT => {}
         _ => {}
     }
@@ -388,7 +421,10 @@ async fn write_serverinit_message(
         .write(server_init.server_pixelformat.padding.as_bytes())
         .await
         .unwrap_or(0);
-    client.write_u32(server_init.name_length).await.unwrap_or(());
+    client
+        .write_u32(server_init.name_length)
+        .await
+        .unwrap_or(());
     client
         .write(server_init.name_string.as_bytes())
         .await
@@ -434,7 +470,10 @@ async fn init_securityresult_handshake(
     match security_type {
         0 | 3.. => {
             let rfb_error = create_rfb_error(String::from("Authentication Type not Supported"));
-            client.write_u32(rfb_error.reason_length).await.unwrap_or(());
+            client
+                .write_u32(rfb_error.reason_length)
+                .await
+                .unwrap_or(());
             client
                 .write(rfb_error.reason_string.as_bytes())
                 .await
@@ -475,7 +514,10 @@ async fn init_authentication_handshake(mut client: TcpStream, wm: Arc<WindowMana
 async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     let rfb_server = RFBServer::init();
     let mut buf: [u8; 12] = [0; 12];
-    client.write(&rfb_server.protocol_version).await.unwrap_or(0);
+    client
+        .write(&rfb_server.protocol_version)
+        .await
+        .unwrap_or(0);
     match client.read_exact(&mut buf).await {
         Ok(protocol_index) => {
             if &buf[0..protocol_index] == b"RFB 003.008\n" {
@@ -483,7 +525,10 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
                 init_authentication_handshake(client, wm).await;
             } else {
                 let rfb_error = create_rfb_error(String::from("Version not Supported"));
-                client.write_u32(rfb_error.reason_length).await.unwrap_or(());
+                client
+                    .write_u32(rfb_error.reason_length)
+                    .await
+                    .unwrap_or(());
                 client
                     .write(rfb_error.reason_string.as_bytes())
                     .await

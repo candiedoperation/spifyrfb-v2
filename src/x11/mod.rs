@@ -27,6 +27,11 @@ pub struct X11PointerEvent {
     pub(crate) button_mask: u8,
 }
 
+pub struct X11KeyEvent {
+    pub(crate) key_down: u8,
+    pub(crate) key_pressed: u8
+}
+
 fn parse_keybutmask(mask: KeyButMask) -> u8 {
     match mask {
         KeyButMask::BUTTON1 => { 1 }
@@ -36,6 +41,23 @@ fn parse_keybutmask(mask: KeyButMask) -> u8 {
         KeyButMask::BUTTON5 => { 5 }
         _ => { 1 }
     }
+}
+
+pub fn fire_key_event(
+    x11_server: &X11Server,
+    x11_screen: Screen,
+    x11_keyevent: X11KeyEvent
+) {
+    xtest::fake_input(
+        &x11_server.connection,
+        if x11_keyevent.key_down == 0 { xproto::KEY_RELEASE_EVENT } else { xproto::KEY_RELEASE_EVENT }, 
+        x11_keyevent.key_pressed, 
+        x11rb::CURRENT_TIME, 
+        x11_screen.root,
+        0, 
+        0, 
+        0
+    ).unwrap();
 }
 
 pub fn fire_pointer_event(
