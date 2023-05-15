@@ -1,5 +1,6 @@
 use crate::x11::{self, fire_pointer_event, X11PointerEvent, X11Server};
 use image::EncodableLayout;
+use x11rb::{protocol::xproto, CURRENT_TIME};
 use std::{error::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -254,6 +255,13 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
             // Return value of `Ok(0)` signifies that the remote has close
             Ok(0) => {
                 println!("Client Has Disconnected");
+                match wm.as_ref() {
+                    WindowManager::_WIN32(_) => {},
+                    WindowManager::X11(x11_server) => {
+                        xproto::ungrab_pointer(&x11_server.connection, CURRENT_TIME).unwrap();
+                    },
+                }
+
                 return;
             }
             Ok(_) => {
@@ -324,7 +332,14 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
             Err(_) => {
                 // Unexpected client error. There isn't much we can do
                 // here so just stop processing.
-                println!("Client Has Disconnected9");
+                println!("Client Has Disconnected (ERR)");
+                match wm.as_ref() {
+                    WindowManager::_WIN32(_) => {},
+                    WindowManager::X11(x11_server) => {
+                        xproto::ungrab_pointer(&x11_server.connection, CURRENT_TIME).unwrap();
+                    },
+                }
+                
                 return;
             }
         }
