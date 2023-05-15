@@ -43,6 +43,19 @@ pub fn fire_pointer_event(
         0
     ).unwrap();
 
+    /*
+        https://manpages.ubuntu.com/manpages/bionic/man3/X11::Protocol::Ext::XTEST.3pm.html
+        Be careful when faking a "ButtonPress" as it might be important to fake a matching
+        "ButtonRelease" too.  On the X.org server circa 1.9.x after a synthetic press the
+        physical mouse doesn't work to generate a release and the button is left hung
+        (presumably in its normal implicit pointer grab).
+    */
+
+    let query_pointer_cookie = xproto::query_pointer(&x11_server.connection, x11_screen.root);
+    let query_pointer_cookie = query_pointer_cookie.unwrap().reply().unwrap();
+
+    println!("{:?}", query_pointer_cookie);
+
     if x11_pointer_event.button_mask == 0 {
         xtest::fake_input(
             &x11_server.connection,
