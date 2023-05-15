@@ -24,7 +24,7 @@ pub fn create_keysym_map(x11_connection: &RustConnection) -> HashMap<u32, u8> {
             if keysym == &x11rb::NO_SYMBOL {
                 continue;
             } else {
-                keysym_keycode_map.insert(keysym.clone(), valid_keysym.0.try_into().unwrap());
+                keysym_keycode_map.insert(keysym.clone(), valid_keysym.0 as u8 + 1);
             }
         }
     }
