@@ -12,5 +12,5 @@ pub fn create_keysym_map(x11_connection: &RustConnection) {
     );
 
     let keyboard_mapping_cookie = keyboard_mapping_cookie.unwrap().reply().unwrap();
-    println!("Keysyms: {:?}", keyboard_mapping_cookie);
+    println!("Keysyms: {:?}", keyboard_mapping_cookie.keysyms);
 }

@@ -52,6 +52,7 @@ pub fn fire_key_event(
     x11_keyevent: X11KeyEvent
 ) {
     keycodes::create_keysym_map(&x11_server.connection);
+    println!("Got: {:?}", x11_keyevent.key_sym);
     xtest::fake_input(
         &x11_server.connection,
         if x11_keyevent.key_down == 0 { xproto::KEY_RELEASE_EVENT } else { xproto::KEY_PRESS_EVENT }, 
