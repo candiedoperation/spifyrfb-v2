@@ -46,8 +46,8 @@ pub fn fire_pointer_event(
     if x11_pointer_event.button_mask == 0 {
         xtest::fake_input(
             &x11_server.connection,
-            xproto::BUTTON_RELEASE_EVENT, 
-            5,
+            xproto::BUTTON_PRESS_EVENT, 
+            3,
             x11rb::CURRENT_TIME,
             x11_screen.root,
             x11_pointer_event.dst_x, 
@@ -57,7 +57,7 @@ pub fn fire_pointer_event(
     } else {
         xtest::fake_input(
             &x11_server.connection,
-            xproto::BUTTON_PRESS_EVENT, 
+            xproto::BUTTON_RELEASE_EVENT, 
             x11_pointer_event.button_mask,
             x11rb::CURRENT_TIME,
             x11_screen.root,
