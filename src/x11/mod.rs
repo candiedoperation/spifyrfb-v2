@@ -1,6 +1,4 @@
-use std::{
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 mod keycodes;
 use crate::server::{
@@ -10,18 +8,16 @@ use crate::server::{
 use x11rb::{
     connection::Connection,
     protocol::{
-        xproto::{
-            self, ImageFormat, Screen, KeyButMask,
-        }, xtest,
+        xproto::{self, ImageFormat, KeyButMask, Screen},
+        xtest,
     },
     rust_connection::{ConnectError, RustConnection},
 };
 
-use self::keycodes::get_x11_keycode;
-
 pub struct X11Server {
     pub(crate) connection: RustConnection,
     pub(crate) displays: Vec<xproto::Screen>,
+    pub(crate) keysym_map: HashMap<u32, u8>,
 }
 
 pub struct X11PointerEvent {
@@ -32,54 +28,55 @@ pub struct X11PointerEvent {
 
 pub struct X11KeyEvent {
     pub(crate) key_down: u8,
-    pub(crate) key_sym: u32
+    pub(crate) key_sym: u32,
 }
 
 fn parse_keybutmask(mask: KeyButMask) -> u8 {
     match mask {
-        KeyButMask::BUTTON1 => { 1 }
-        KeyButMask::BUTTON2 => { 2 }
-        KeyButMask::BUTTON3 => { 3 }
-        KeyButMask::BUTTON4 => { 4 }
-        KeyButMask::BUTTON5 => { 5 }
-        _ => { 1 }
+        KeyButMask::BUTTON1 => 1,
+        KeyButMask::BUTTON2 => 2,
+        KeyButMask::BUTTON3 => 3,
+        KeyButMask::BUTTON4 => 4,
+        KeyButMask::BUTTON5 => 5,
+        _ => 1,
     }
 }
 
-pub fn fire_key_event(
-    x11_server: &X11Server,
-    x11_screen: Screen,
-    x11_keyevent: X11KeyEvent
-) {
+pub fn fire_key_event(x11_server: &X11Server, x11_screen: Screen, x11_keyevent: X11KeyEvent) {
     keycodes::create_keysym_map(&x11_server.connection);
-    println!("Got: {:?}", x11_keyevent.key_sym);
     xtest::fake_input(
         &x11_server.connection,
-        if x11_keyevent.key_down == 0 { xproto::KEY_RELEASE_EVENT } else { xproto::KEY_PRESS_EVENT }, 
-        get_x11_keycode(x11_keyevent.key_sym), 
+        if x11_keyevent.key_down == 0 {
+            xproto::KEY_RELEASE_EVENT
+        } else {
+            xproto::KEY_PRESS_EVENT
+        },
+        *x11_server.keysym_map.get(&x11_keyevent.key_sym).unwrap(),
         x11rb::CURRENT_TIME,
         x11_screen.root,
-        0, 
-        0, 
-        0
-    ).unwrap();
+        0,
+        0,
+        0,
+    )
+    .unwrap();
 }
 
 pub fn fire_pointer_event(
     x11_server: &X11Server,
     x11_screen: Screen,
     x11_pointer_event: X11PointerEvent,
-) { 
+) {
     xtest::fake_input(
-        &x11_server.connection, 
-        xproto::MOTION_NOTIFY_EVENT, 
-        false.into(), 
-        x11rb::CURRENT_TIME, 
-        x11_screen.root.clone(), 
-        x11_pointer_event.dst_x, 
-        x11_pointer_event.dst_y, 
-        0
-    ).unwrap();
+        &x11_server.connection,
+        xproto::MOTION_NOTIFY_EVENT,
+        false.into(),
+        x11rb::CURRENT_TIME,
+        x11_screen.root.clone(),
+        x11_pointer_event.dst_x,
+        x11_pointer_event.dst_y,
+        0,
+    )
+    .unwrap();
 
     /*
         https://manpages.ubuntu.com/manpages/bionic/man3/X11::Protocol::Ext::XTEST.3pm.html
@@ -94,14 +91,23 @@ pub fn fire_pointer_event(
 
     xtest::fake_input(
         &x11_server.connection,
-        if x11_pointer_event.button_mask == 0 { xproto::BUTTON_RELEASE_EVENT } else { xproto::BUTTON_PRESS_EVENT }, 
-        if x11_pointer_event.button_mask == 0 { parse_keybutmask(query_pointer_cookie.mask) } else { x11_pointer_event.button_mask },
+        if x11_pointer_event.button_mask == 0 {
+            xproto::BUTTON_RELEASE_EVENT
+        } else {
+            xproto::BUTTON_PRESS_EVENT
+        },
+        if x11_pointer_event.button_mask == 0 {
+            parse_keybutmask(query_pointer_cookie.mask)
+        } else {
+            x11_pointer_event.button_mask
+        },
         x11rb::CURRENT_TIME,
         x11_screen.root,
-        x11_pointer_event.dst_x, 
-        x11_pointer_event.dst_y, 
-        0
-    ).unwrap(); 
+        x11_pointer_event.dst_x,
+        x11_pointer_event.dst_y,
+        0,
+    )
+    .unwrap();
 }
 
 pub fn get_display_struct(x11_server: &X11Server, x11_screen: Screen) -> server::RFBServerInit {
@@ -255,6 +261,7 @@ pub fn connect() -> Result<Arc<WindowManager>, ConnectError> {
         Ok((x11_connection, _x11_screen_id)) => {
             return Ok(Arc::new(WindowManager::X11(X11Server {
                 displays: x11_connection.setup().clone().roots,
+                keysym_map: keycodes::create_keysym_map(&x11_connection),
                 connection: x11_connection,
             })));
         }
