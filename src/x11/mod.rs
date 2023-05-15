@@ -10,7 +10,7 @@ use x11rb::{
     connection::Connection,
     protocol::{
         xproto::{
-            self, ImageFormat, Screen,
+            self, ImageFormat, Screen, KeyButMask,
         }, xtest,
     },
     rust_connection::{ConnectError, RustConnection},
@@ -25,6 +25,17 @@ pub struct X11PointerEvent {
     pub(crate) dst_x: i16,
     pub(crate) dst_y: i16,
     pub(crate) button_mask: u8,
+}
+
+fn parse_keybutmask(mask: KeyButMask) -> u8 {
+    match mask {
+        KeyButMask::BUTTON1 => { 1 }
+        KeyButMask::BUTTON2 => { 2 }
+        KeyButMask::BUTTON3 => { 3 }
+        KeyButMask::BUTTON4 => { 4 }
+        KeyButMask::BUTTON5 => { 5 }
+        _ => { 1 }
+    }
 }
 
 pub fn fire_pointer_event(
@@ -54,31 +65,16 @@ pub fn fire_pointer_event(
     let query_pointer_cookie = xproto::query_pointer(&x11_server.connection, x11_screen.root);
     let query_pointer_cookie = query_pointer_cookie.unwrap().reply().unwrap();
 
-    println!("{:?}", query_pointer_cookie);
-
-    if x11_pointer_event.button_mask == 0 {
-        xtest::fake_input(
-            &x11_server.connection,
-            xproto::BUTTON_PRESS_EVENT, 
-            3,
-            x11rb::CURRENT_TIME,
-            x11_screen.root,
-            x11_pointer_event.dst_x, 
-            x11_pointer_event.dst_y, 
-            0
-        ).unwrap();   
-    } else {
-        xtest::fake_input(
-            &x11_server.connection,
-            xproto::BUTTON_RELEASE_EVENT, 
-            x11_pointer_event.button_mask,
-            x11rb::CURRENT_TIME,
-            x11_screen.root,
-            x11_pointer_event.dst_x, 
-            x11_pointer_event.dst_y, 
-            0
-        ).unwrap();
-    }
+    xtest::fake_input(
+        &x11_server.connection,
+        if x11_pointer_event.button_mask == 0 { xproto::BUTTON_RELEASE_EVENT } else { xproto::BUTTON_PRESS_EVENT }, 
+        if x11_pointer_event.button_mask == 0 { parse_keybutmask(query_pointer_cookie.mask) } else { x11_pointer_event.button_mask },
+        x11rb::CURRENT_TIME,
+        x11_screen.root,
+        x11_pointer_event.dst_x, 
+        x11_pointer_event.dst_y, 
+        0
+    ).unwrap(); 
 }
 
 pub fn get_display_struct(x11_server: &X11Server, x11_screen: Screen) -> server::RFBServerInit {
