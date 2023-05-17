@@ -9,3 +9,9 @@ edition = "2021"
 image = "0.24.6"
 tokio = { version = "1", features = ["full"] }
 x11rb = { version = "0.11.1", features = ["all-extensions"] }
+windows = { version = "0.48", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D9",
+    "Win32_Graphics_Gdi",
+    "Win32_Networking_WinSock"
+] }

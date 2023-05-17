@@ -1,6 +1,7 @@
-use crate::x11::{
+use crate::{x11::{
     self, fire_key_event, fire_pointer_event, X11KeyEvent, X11PointerEvent, X11Server,
-};
+}, win32::{self, Win32Server}};
+
 use image::EncodableLayout;
 use std::{env, error::Error, sync::Arc};
 use tokio::{
@@ -88,7 +89,7 @@ pub struct FrameBufferUpdate {
 
 pub enum WindowManager {
     X11(X11Server),
-    _WIN32(u8),
+    WIN32(Win32Server),
 }
 
 struct RFBServer {
@@ -164,7 +165,16 @@ async fn process_clientserver_message(
             /* SET PIXEL FORMAT IN FUTURE RELEASES */
 
             match wm.as_ref() {
-                WindowManager::_WIN32(_win32_server) => {}
+                WindowManager::WIN32(win32_server) => {
+                    write_framebuffer_update_message(
+                        client_tx,
+                        win32::fullscreen_framebuffer_update(
+                            win32_server.monitors[0].clone(),
+                            RFBEncodingType::RAW,
+                        ),
+                    )
+                    .await;
+                }
                 WindowManager::X11(x11_server) => {
                     write_framebuffer_update_message(
                         client_tx,
@@ -189,7 +199,7 @@ async fn process_clientserver_message(
             let height: u16 = ((buffer[7] as u16) << 8) | buffer[8] as u16;
 
             match wm.as_ref() {
-                WindowManager::_WIN32(_win32_server) => {}
+                WindowManager::WIN32(_win32_server) => {}
                 WindowManager::X11(x11_server) => {
                     write_framebuffer_update_message(
                         client_tx,
@@ -208,7 +218,7 @@ async fn process_clientserver_message(
             }
         }
         ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
-            WindowManager::_WIN32(_) => {}
+            WindowManager::WIN32(_) => {}
             WindowManager::X11(x11_server) => {
                 let mut button_mask = buffer[0];
                 let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
@@ -264,7 +274,7 @@ async fn process_clientserver_message(
             };
 
             match wm.as_ref() {
-                WindowManager::_WIN32(_) => {}
+                WindowManager::WIN32(_) => {}
                 WindowManager::X11(x11_server) => {
                     fire_key_event(&x11_server, x11_server.displays[0].clone(), x11_keyevent);
                 }
@@ -432,7 +442,15 @@ async fn write_serverinit_message(
 
 async fn init_serverinit_handshake(client: TcpStream, wm: Arc<WindowManager>) {
     match wm.as_ref() {
-        WindowManager::_WIN32(_) => {}
+        WindowManager::WIN32(win32_server) => {
+            println!("DISPLAY_STRUCT: {:?}", win32::get_display_struct(win32_server.monitors[0].clone()));
+            write_serverinit_message(
+                client, 
+                win32::get_display_struct(win32_server.monitors[0].clone()), 
+                wm
+            )
+            .await;
+        },
         WindowManager::X11(x11_server) => {
             /* X11-DISPLAYSTRUCT API */
             write_serverinit_message(
@@ -560,8 +578,26 @@ pub async fn create() -> Result<(), Box<dyn Error>> {
                     return Err(String::from("x11-server Connection Error").into());
                 }
             }
-        }
-        "windows" => Err("Win32 To be Implemented".into()),
+        },
+        "windows" => {
+            match win32::connect() {
+                Ok(wm_arc) => {
+                    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+                    loop {
+                        let (client, _) = listener.accept().await?;
+                        let wm = Arc::clone(&wm_arc);
+                        tokio::spawn(async move {
+                            // Handle The Client
+                            println!("Connection Established: {:?}", client);
+                            init_handshake(client, wm).await;
+                        });
+                    }
+                }
+                Err(_) => {
+                    return Err(String::from("Windows API Connection Error").into());
+                }
+            }
+        },
         os => Err(("Spify RFB doesn't support ".to_owned() + os).into()),
     }
-}
+}    
