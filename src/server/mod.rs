@@ -1,6 +1,8 @@
-use crate::x11::{self, fire_pointer_event, X11PointerEvent, X11Server, fire_key_event, X11KeyEvent};
+use crate::x11::{
+    self, fire_key_event, fire_pointer_event, X11KeyEvent, X11PointerEvent, X11Server,
+};
 use image::EncodableLayout;
-use std::{error::Error, sync::Arc};
+use std::{env, error::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -258,17 +260,13 @@ async fn process_clientserver_message(
 
             let x11_keyevent = X11KeyEvent {
                 key_down: down_flag,
-                key_sym
+                key_sym,
             };
 
             match wm.as_ref() {
                 WindowManager::_WIN32(_) => {}
                 WindowManager::X11(x11_server) => {
-                    fire_key_event(
-                        &x11_server,
-                        x11_server.displays[0].clone(), 
-                        x11_keyevent
-                    );
+                    fire_key_event(&x11_server, x11_server.displays[0].clone(), x11_keyevent);
                 }
             }
         }
@@ -540,23 +538,30 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
 }
 
 pub async fn create() -> Result<(), Box<dyn Error>> {
-    /* PERSISTENT X11 CONNECTION TO PREVENT A ZILLION CONNECTIONS ON CLIENT EVENTS */
-    match x11::connect() {
-        Ok(wm_arc) => {
-            /* Create a Tokio TCP Listener on Free Port */
-            let listener = TcpListener::bind("127.0.0.1:8080").await?;
-            loop {
-                let (client, _) = listener.accept().await?;
-                let wm = Arc::clone(&wm_arc);
-                tokio::spawn(async move {
-                    // Handle The Client
-                    println!("Connection Established: {:?}", client);
-                    init_handshake(client, wm).await;
-                });
+    match env::consts::OS {
+        "linux" => {
+            /* PERSISTENT X11 CONNECTION TO PREVENT A ZILLION CONNECTIONS ON CLIENT EVENTS */
+            /* TRY WAYLAND DETECTION */
+            match x11::connect() {
+                Ok(wm_arc) => {
+                    /* Create a Tokio TCP Listener on Free Port */
+                    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+                    loop {
+                        let (client, _) = listener.accept().await?;
+                        let wm = Arc::clone(&wm_arc);
+                        tokio::spawn(async move {
+                            // Handle The Client
+                            println!("Connection Established: {:?}", client);
+                            init_handshake(client, wm).await;
+                        });
+                    }
+                }
+                Err(_) => {
+                    return Err(String::from("x11-server Connection Error").into());
+                }
             }
         }
-        Err(_) => {
-            return Err(String::from("x11-server Connection Error").into());
-        }
+        "windows" => Err("Win32 To be Implemented".into()),
+        os => Err(("Spify RFB doesn't support ".to_owned() + os).into()),
     }
 }

@@ -5,6 +5,7 @@ use crate::server::{
     self, FrameBufferRectangle, FrameBufferUpdate, PixelFormat, RFBEncodingType, RFBServerInit,
     ServerToClientMessage, WindowManager,
 };
+
 use x11rb::{
     connection::Connection,
     protocol::{
