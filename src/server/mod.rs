@@ -238,7 +238,7 @@ async fn process_clientserver_message(
             }
         }
         ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
-            WindowManager::WIN32(_win32_server) => {
+            WindowManager::WIN32(win32_server) => {
                 let button_mask = buffer[0];
                 let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
                     .try_into()
@@ -251,7 +251,7 @@ async fn process_clientserver_message(
                     dst_x,
                     dst_y,
                     button_mask
-                });
+                }, win32_server.monitors[0].clone());
             }
             WindowManager::X11(x11_server) => {
                 let mut button_mask = buffer[0];

@@ -20,6 +20,8 @@ use crate::server::WindowManager;
 pub struct Win32Monitor {
     _monitor_handle: Win32_Gdi::HMONITOR,
     pub monitor_rect: Win32_Foundation::RECT,
+    normalized_x: i32,
+    normalized_y: i32
 }
 
 struct Win32CaptureDriver {
@@ -39,7 +41,8 @@ pub struct Win32PointerEvent {
 }
 
 pub fn fire_pointer_event(
-    pointer_event: Win32PointerEvent
+    pointer_event: Win32PointerEvent,
+    input_monitor: Win32Monitor
 ) {
     unsafe {
         /*
@@ -84,8 +87,8 @@ pub fn fire_pointer_event(
                 r#type: Win32_KeyboardAndMouse::INPUT_MOUSE,
                 Anonymous:  Win32_KeyboardAndMouse::INPUT_0 {
                     mi: Win32_KeyboardAndMouse::MOUSEINPUT { 
-                        dx: pointer_event.dst_x as i32, 
-                        dy: pointer_event.dst_y as i32, 
+                        dx: pointer_event.dst_x as i32 * input_monitor.normalized_x, 
+                        dy: pointer_event.dst_y as i32 * input_monitor.normalized_y, 
                         mouseData: input_mousedata,
                         dwFlags: Win32_KeyboardAndMouse::MOUSEEVENTF_ABSOLUTE | input_dwflags, 
                         time: 0, 
@@ -96,7 +99,6 @@ pub fn fire_pointer_event(
         ];
 
         /* SEND WARP+ACTION INPUTS */
-        //Win32_WindowsAndMessaging::SetCursorPos(pointer_event.dst_x as i32, pointer_event.dst_y as i32);
         Win32_KeyboardAndMouse::SendInput(&inputs_array, mem::size_of::<Win32_KeyboardAndMouse::INPUT>() as i32);
     }
 }
@@ -234,7 +236,9 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
                 Win32_Foundation::TRUE => {
                     WIN32_MONITORS.push(Win32Monitor { 
                         _monitor_handle: monitor_handle, 
-                        monitor_rect: monitor_info.rcMonitor
+                        monitor_rect: monitor_info.rcMonitor,
+                        normalized_x: 65535 / (monitor_info.rcMonitor.right - monitor_info.rcMonitor.left),
+                        normalized_y: 65535 / (monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top)
                     });
 
                     /* RETURN TRUE TO FFI CALLER */
