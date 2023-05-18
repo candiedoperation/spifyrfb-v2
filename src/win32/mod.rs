@@ -53,10 +53,31 @@ pub fn fire_pointer_event(
         */
 
         let input_dwflags: Win32_KeyboardAndMouse::MOUSE_EVENT_FLAGS = match pointer_event.button_mask {
-            0 => Win32_KeyboardAndMouse::MOUSEEVENTF_LEFTUP,
-            1 => Win32_KeyboardAndMouse::MOUSEEVENTF_LEFTDOWN,
+            0 => {
+                if Win32_KeyboardAndMouse::GetKeyState(Win32_KeyboardAndMouse::VK_LBUTTON.0 as i32) < 0 {
+                    Win32_KeyboardAndMouse::MOUSEEVENTF_MOVE | Win32_KeyboardAndMouse::MOUSEEVENTF_LEFTUP
+                } else if Win32_KeyboardAndMouse::GetKeyState(Win32_KeyboardAndMouse::VK_MBUTTON.0 as i32) < 0 {
+                    Win32_KeyboardAndMouse::MOUSEEVENTF_MOVE | Win32_KeyboardAndMouse::MOUSEEVENTF_MIDDLEUP
+                } else if Win32_KeyboardAndMouse::GetKeyState(Win32_KeyboardAndMouse::VK_RBUTTON.0 as i32) < 0 {
+                    Win32_KeyboardAndMouse::MOUSEEVENTF_MOVE | Win32_KeyboardAndMouse::MOUSEEVENTF_RIGHTUP
+                } else {
+                    Win32_KeyboardAndMouse::MOUSEEVENTF_MOVE
+                }
+            },
+            1 => Win32_KeyboardAndMouse::MOUSEEVENTF_MOVE | Win32_KeyboardAndMouse::MOUSEEVENTF_LEFTDOWN,
+            2 => Win32_KeyboardAndMouse::MOUSEEVENTF_MOVE | Win32_KeyboardAndMouse::MOUSEEVENTF_MIDDLEDOWN,
+            4 => Win32_KeyboardAndMouse::MOUSEEVENTF_MOVE | Win32_KeyboardAndMouse::MOUSEEVENTF_RIGHTDOWN,
+            8 => Win32_KeyboardAndMouse::MOUSEEVENTF_WHEEL,
+            16 => Win32_KeyboardAndMouse::MOUSEEVENTF_WHEEL,
             _ => Win32_KeyboardAndMouse::MOUSEEVENTF_MOVE
         };
+
+        let mut input_mousedata: i32 = 0;
+        if pointer_event.button_mask == 8 {
+            input_mousedata = Win32_WindowsAndMessaging::WHEEL_DELTA as i32
+        } else if pointer_event.button_mask == 16 {
+            input_mousedata = -(Win32_WindowsAndMessaging::WHEEL_DELTA as i32)
+        }
 
         let inputs_array: [Win32_KeyboardAndMouse::INPUT; 1] = [
             Win32_KeyboardAndMouse::INPUT {
@@ -65,8 +86,8 @@ pub fn fire_pointer_event(
                     mi: Win32_KeyboardAndMouse::MOUSEINPUT { 
                         dx: pointer_event.dst_x as i32, 
                         dy: pointer_event.dst_y as i32, 
-                        mouseData: 0,
-                        dwFlags: input_dwflags, 
+                        mouseData: input_mousedata,
+                        dwFlags: Win32_KeyboardAndMouse::MOUSEEVENTF_ABSOLUTE | input_dwflags, 
                         time: 0, 
                         dwExtraInfo: Win32_WindowsAndMessaging::GetMessageExtraInfo().0 as usize
                     }
@@ -75,7 +96,7 @@ pub fn fire_pointer_event(
         ];
 
         /* SEND WARP+ACTION INPUTS */
-        Win32_WindowsAndMessaging::SetCursorPos(pointer_event.dst_x as i32, pointer_event.dst_y as i32);
+        //Win32_WindowsAndMessaging::SetCursorPos(pointer_event.dst_x as i32, pointer_event.dst_y as i32);
         Win32_KeyboardAndMouse::SendInput(&inputs_array, mem::size_of::<Win32_KeyboardAndMouse::INPUT>() as i32);
     }
 }
