@@ -166,11 +166,16 @@ async fn process_clientserver_message(
 
             match wm.as_ref() {
                 WindowManager::WIN32(win32_server) => {
+                    let win32_monitor = win32_server.monitors[0].clone();
                     write_framebuffer_update_message(
                         client_tx,
-                        win32::fullscreen_framebuffer_update(
-                            win32_server.monitors[0].clone(),
+                        win32::rectangle_framebuffer_update(
+                            win32_monitor.clone(),
                             RFBEncodingType::RAW,
+                            0,
+                            0,
+                            (win32_monitor.monitor_rect.right - win32_monitor.monitor_rect.left) as u16,
+                            (win32_monitor.monitor_rect.bottom - win32_monitor.monitor_rect.top) as u16
                         ),
                     )
                     .await;
