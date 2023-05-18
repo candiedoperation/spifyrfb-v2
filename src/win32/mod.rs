@@ -1,7 +1,7 @@
+use std::ffi;
 use std::mem;
 use std::sync::Arc;
 use windows::Win32::Foundation::BOOL;
-use windows::Win32::Graphics::Direct3D9 as Win32_D3D9;
 use windows::Win32::Graphics::Gdi as Win32_Gdi;
 use windows::Win32::Foundation as Win32_Foundation;
 use windows::Win32::Networking::WinSock as Win32_WinSock;
@@ -19,17 +19,20 @@ use crate::server::WindowManager;
 pub struct Win32Monitor {
     monitor_handle: Win32_Gdi::HMONITOR,
     pub monitor_rect: Win32_Foundation::RECT,
-    pub d3d9_device: Option<Win32_D3D9::IDirect3DDevice9>
 }
 
-unsafe impl Send for Win32Monitor {}
-unsafe impl Sync for Win32Monitor {}
+struct Win32CaptureDriver {
+    desktop_dc: Win32_Gdi::HDC,
+    destination_dc: Win32_Gdi::CreatedHDC,
+}
 
 pub struct Win32Server {
-    pub(crate) monitors: Vec<Win32Monitor>
+    pub(crate) monitors: Vec<Win32Monitor>,
+    capture_driver: Win32CaptureDriver
 }
 
 pub fn rectangle_framebuffer_update(
+    win32_server: &Win32Server,
     win32_monitor: Win32Monitor, 
     encoding_type: i32,
     x_position: i16,
@@ -38,22 +41,58 @@ pub fn rectangle_framebuffer_update(
     height: u16
 ) -> FrameBufferUpdate {
     unsafe {
-        /* 
-            Win32_D3D9::D3DFORMAT(21) -> A8R8G8B8 MSB TO LSB 
-            Win32_D3D9::D3DPOOL(3) -> D3DPOOL::SCRATCH(), VALUES STORED IN RAM
-        */
+        let compatible_bitmap = Win32_Gdi::CreateCompatibleBitmap(win32_server.capture_driver.desktop_dc, width as i32, height as i32);
+        Win32_Gdi::SelectObject(win32_server.capture_driver.desktop_dc, compatible_bitmap);
+        Win32_Gdi::BitBlt(
+            win32_server.capture_driver.destination_dc,
+            x_position as i32, 
+            y_position as i32, 
+            width as i32, 
+            height as i32, 
+            Option::None, 
+            x_position as i32, 
+            y_position  as i32, 
+            Win32_Gdi::SRCCOPY
+        );
 
-        let mut d3d9_surface: Option<Win32_D3D9::IDirect3DSurface9> = Default::default();
-        let d3d9_device: Win32_D3D9::IDirect3DDevice9 = win32_monitor.d3d9_device.unwrap();
-        d3d9_device.CreateOffscreenPlainSurface(
-            width as u32, 
+        let mut bitmap_info = Win32_Gdi::BITMAPINFO {
+            bmiHeader:  Win32_Gdi::BITMAPINFOHEADER { 
+                biSize: mem::size_of::<Win32_Gdi::BITMAPINFOHEADER>() as u32, 
+                biWidth: width as i32, 
+                biHeight: height as i32 * -1,
+                biPlanes: 1, /* MUST BE SET TO ONE */ 
+                biBitCount: 32,
+                biCompression: 0,
+                biSizeImage: 0,
+                biXPelsPerMeter: 0,
+                biYPelsPerMeter: 0,
+                biClrUsed: 0,
+                biClrImportant: 0,
+                
+            },
+            bmiColors: [Win32_Gdi::RGBQUAD {
+                rgbBlue: 255,
+                rgbGreen: 255,
+                rgbRed: 255,
+                rgbReserved: 0,
+            }; 1]
+        };
+        
+        let mut buf: Vec<u8> = Vec::with_capacity(width as usize * height as usize * 4);
+        let rv = Win32_Gdi::GetDIBits(
+            win32_server.capture_driver.desktop_dc, 
+            compatible_bitmap,
+            0,
             height as u32, 
-            Win32_D3D9::D3DFORMAT(21), 
-            Win32_D3D9::D3DPOOL(3), 
-            &mut d3d9_surface, 
-            &mut Win32_Foundation::HANDLE(0) as *mut _
-        ).unwrap();
-    
+            Some(buf.as_mut_ptr().cast()),
+            &mut bitmap_info, 
+            Win32_Gdi::DIB_RGB_COLORS
+        );
+
+        /* DESTROY BITMAP AFTER SAVE */
+        println!("BMP: {:?} -> {:?}", rv, buf);
+        Win32_Gdi::DeleteObject(compatible_bitmap);
+
         let mut pixel_data: Vec<u8> = vec![];
         let mut frame_buffer: Vec<FrameBufferRectangle> = vec![];
         match encoding_type {
@@ -64,7 +103,7 @@ pub fn rectangle_framebuffer_update(
                     width,
                     height,
                     encoding_type: RFBEncodingType::RAW,
-                    pixel_data,
+                    pixel_data: buf,
                 });
             }
             _ => {}
@@ -83,6 +122,8 @@ pub fn get_display_struct(win32_monitor: Win32Monitor) -> server::RFBServerInit 
     unsafe {
         let mut hostname: [u16; 15] = [0; 15];
         Win32_WinSock::GetHostNameW(&mut hostname);
+        let valid_hostname = hostname.iter().position(|&c| c as u8 == b'\0' ).unwrap_or(hostname.len());
+        let valid_hostname: String = String::from_utf16_lossy(&hostname[0..valid_hostname]);
 
         /*
             Note: Apps that you design to target Windows 8 and later can no longer 
@@ -111,8 +152,8 @@ pub fn get_display_struct(win32_monitor: Win32Monitor) -> server::RFBServerInit 
             framebuffer_width: (win32_monitor.monitor_rect.right - win32_monitor.monitor_rect.left) as u16,
             framebuffer_height: (win32_monitor.monitor_rect.bottom - win32_monitor.monitor_rect.top) as u16,
             server_pixelformat: pixel_format,
-            name_length: 15,
-            name_string: String::from_utf16_lossy(&hostname)
+            name_length: valid_hostname.len() as u32,
+            name_string: valid_hostname
         }
     }
 }
@@ -129,40 +170,9 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
             /* RETURN BOOL FOR CALLBACK */
             match get_monitor_result {
                 Win32_Foundation::TRUE => {
-                    let d3d9_create = Win32_D3D9::Direct3DCreate9(Win32_D3D9::D3D_SDK_VERSION).unwrap();
-                    let mut d3d9_device: Option<Win32_D3D9::IDirect3DDevice9> = Default::default();
-
-                    let mut d3d9_present_parameters: Win32_D3D9::D3DPRESENT_PARAMETERS;
-                    d3d9_present_parameters = Win32_D3D9::D3DPRESENT_PARAMETERS {
-                        BackBufferWidth: (monitor_info.rcMonitor.right - monitor_info.rcMonitor.left) as u32,
-                        BackBufferHeight: (monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top) as u32,
-                        BackBufferFormat: Win32_D3D9::D3DFORMAT(21),
-                        BackBufferCount: 1,
-                        MultiSampleType: Win32_D3D9::D3DMULTISAMPLE_NONE,
-                        MultiSampleQuality: 0,
-                        SwapEffect: Win32_D3D9::D3DSWAPEFFECT(1), /* DISCARD, SWAP EFFECT */
-                        hDeviceWindow: Win32_Foundation::HWND(monitor_handle.0),
-                        Windowed: Win32_Foundation::TRUE,
-                        EnableAutoDepthStencil: Win32_Foundation::FALSE,
-                        AutoDepthStencilFormat: Win32_D3D9::D3DFORMAT(0), /* 0 -> UNKNOWN */
-                        Flags: Win32_D3D9::D3DPRESENTFLAG_LOCKABLE_BACKBUFFER,
-                        FullScreen_RefreshRateInHz: 0, /* For windowed mode, the refresh rate must be 0 */
-                        PresentationInterval: Win32_D3D9::D3DPRESENT_INTERVAL_DEFAULT as u32,
-                    };
-
-                    d3d9_create.CreateDevice(
-                        Win32_D3D9::D3DADAPTER_DEFAULT, 
-                        Win32_D3D9::D3DDEVTYPE_HAL, 
-                        Option::None,
-                        Win32_D3D9::D3DCREATE_MIXED_VERTEXPROCESSING as u32, 
-                        &mut d3d9_present_parameters,
-                        &mut d3d9_device
-                    ).unwrap();
-
                     WIN32_MONITORS.push(Win32Monitor { 
                         monitor_handle, 
-                        monitor_rect: monitor_info.rcMonitor,
-                        d3d9_device
+                        monitor_rect: monitor_info.rcMonitor
                     });
 
                     /* RETURN TRUE TO FFI CALLER */
@@ -184,8 +194,15 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
 
         match enum_display_monitors_result {
             Win32_Foundation::TRUE => {
+                let desktop_device_context = Win32_Gdi::GetDC(Option::None);
+                let dest_device_context = Win32_Gdi::CreateCompatibleDC(desktop_device_context);
+        
                 return Ok(Arc::from(WindowManager::WIN32(Win32Server {
-                    monitors: WIN32_MONITORS.to_vec()
+                    monitors: WIN32_MONITORS.to_vec(),
+                    capture_driver: Win32CaptureDriver { 
+                        desktop_dc: desktop_device_context, 
+                        destination_dc: dest_device_context
+                    }
                 })));
             },
             _ => {

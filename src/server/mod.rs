@@ -170,6 +170,7 @@ async fn process_clientserver_message(
                     write_framebuffer_update_message(
                         client_tx,
                         win32::rectangle_framebuffer_update(
+                            win32_server,
                             win32_monitor.clone(),
                             RFBEncodingType::RAW,
                             0,
