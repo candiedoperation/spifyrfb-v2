@@ -42,16 +42,19 @@ pub fn rectangle_framebuffer_update(
 ) -> FrameBufferUpdate {
     unsafe {
         let compatible_bitmap = Win32_Gdi::CreateCompatibleBitmap(win32_server.capture_driver.desktop_dc, width as i32, height as i32);
-        Win32_Gdi::SelectObject(win32_server.capture_driver.desktop_dc, compatible_bitmap);
-        Win32_Gdi::BitBlt(
-            win32_server.capture_driver.destination_dc,
+        let compatible_dc = Win32_Gdi::CreateCompatibleDC(win32_server.capture_driver.desktop_dc);
+        Win32_Gdi::SelectObject(compatible_dc, compatible_bitmap);
+        Win32_Gdi::StretchBlt(
+            compatible_dc,
             x_position as i32, 
             y_position as i32, 
             width as i32, 
             height as i32, 
-            Option::None, 
+            win32_server.capture_driver.desktop_dc, 
             x_position as i32, 
-            y_position  as i32, 
+            y_position  as i32,
+            width as i32, 
+            height as i32, 
             Win32_Gdi::SRCCOPY
         );
 
@@ -63,37 +66,26 @@ pub fn rectangle_framebuffer_update(
                 biPlanes: 1, /* MUST BE SET TO ONE */ 
                 biBitCount: 32,
                 biCompression: 0,
-                biSizeImage: 0,
-                biXPelsPerMeter: 0,
-                biYPelsPerMeter: 0,
-                biClrUsed: 0,
-                biClrImportant: 0,
+                ..Default::default()
                 
             },
-            bmiColors: [Win32_Gdi::RGBQUAD {
-                rgbBlue: 255,
-                rgbGreen: 255,
-                rgbRed: 255,
-                rgbReserved: 0,
-            }; 1]
+            ..Default::default()
         };
         
-        let mut buf: Vec<u8> = Vec::with_capacity(width as usize * height as usize * 4);
-        let rv = Win32_Gdi::GetDIBits(
-            win32_server.capture_driver.desktop_dc, 
+        let mut pixel_data: Vec<u8> = vec![0; (4 * width as usize * height as usize) as usize];
+        Win32_Gdi::GetDIBits(
+            compatible_dc,
             compatible_bitmap,
             0,
             height as u32, 
-            Some(buf.as_mut_ptr().cast()),
+            Some(pixel_data.as_mut_ptr() as *mut core::ffi::c_void),
             &mut bitmap_info, 
             Win32_Gdi::DIB_RGB_COLORS
         );
 
-        /* DESTROY BITMAP AFTER SAVE */
-        println!("BMP: {:?} -> {:?}", rv, buf);
+        /* DESTROY BITMAP AFTER SAVE, DEALLOC OBJECTS ON CLOSE */
         Win32_Gdi::DeleteObject(compatible_bitmap);
 
-        let mut pixel_data: Vec<u8> = vec![];
         let mut frame_buffer: Vec<FrameBufferRectangle> = vec![];
         match encoding_type {
             RFBEncodingType::RAW => {
@@ -103,7 +95,7 @@ pub fn rectangle_framebuffer_update(
                     width,
                     height,
                     encoding_type: RFBEncodingType::RAW,
-                    pixel_data: buf,
+                    pixel_data
                 });
             }
             _ => {}
@@ -194,7 +186,7 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
 
         match enum_display_monitors_result {
             Win32_Foundation::TRUE => {
-                let desktop_device_context = Win32_Gdi::GetDC(Option::None);
+                let desktop_device_context = Win32_Gdi::GetDC(Win32_Foundation::HWND::default());
                 let dest_device_context = Win32_Gdi::CreateCompatibleDC(desktop_device_context);
         
                 return Ok(Arc::from(WindowManager::WIN32(Win32Server {

@@ -205,7 +205,21 @@ async fn process_clientserver_message(
             let height: u16 = ((buffer[7] as u16) << 8) | buffer[8] as u16;
 
             match wm.as_ref() {
-                WindowManager::WIN32(_win32_server) => {}
+                WindowManager::WIN32(win32_server) => {
+                    write_framebuffer_update_message(
+                        client_tx,
+                        win32::rectangle_framebuffer_update(
+                            win32_server,
+                            win32_server.monitors[0].clone(),
+                            RFBEncodingType::RAW,
+                            0,
+                            0,
+                            width,
+                            height
+                        ),
+                    )
+                    .await;
+                }
                 WindowManager::X11(x11_server) => {
                     write_framebuffer_update_message(
                         client_tx,
@@ -561,7 +575,7 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     }
 }
 
-pub async fn create() -> Result<(), Box<dyn Error>> {
+pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
     match env::consts::OS {
         "linux" => {
             /* PERSISTENT X11 CONNECTION TO PREVENT A ZILLION CONNECTIONS ON CLIENT EVENTS */
@@ -569,7 +583,7 @@ pub async fn create() -> Result<(), Box<dyn Error>> {
             match x11::connect() {
                 Ok(wm_arc) => {
                     /* Create a Tokio TCP Listener on Free Port */
-                    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+                    let listener = TcpListener::bind(ip_address).await?;
                     loop {
                         let (client, _) = listener.accept().await?;
                         let wm = Arc::clone(&wm_arc);
@@ -588,7 +602,7 @@ pub async fn create() -> Result<(), Box<dyn Error>> {
         "windows" => {
             match win32::connect() {
                 Ok(wm_arc) => {
-                    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+                    let listener = TcpListener::bind(ip_address).await?;
                     loop {
                         let (client, _) = listener.accept().await?;
                         let wm = Arc::clone(&wm_arc);
