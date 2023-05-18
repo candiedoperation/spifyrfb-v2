@@ -1,10 +1,11 @@
-use std::ffi;
 use std::mem;
 use std::sync::Arc;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::Graphics::Gdi as Win32_Gdi;
 use windows::Win32::Foundation as Win32_Foundation;
 use windows::Win32::Networking::WinSock as Win32_WinSock;
+use windows::Win32::UI::WindowsAndMessaging as Win32_WindowsAndMessaging;
+use windows::Win32::UI::Input::KeyboardAndMouse as Win32_KeyboardAndMouse;
 
 use crate::server;
 use crate::server::FrameBufferRectangle;
@@ -17,13 +18,13 @@ use crate::server::WindowManager;
 
 #[derive(Clone, Debug)]
 pub struct Win32Monitor {
-    monitor_handle: Win32_Gdi::HMONITOR,
+    _monitor_handle: Win32_Gdi::HMONITOR,
     pub monitor_rect: Win32_Foundation::RECT,
 }
 
 struct Win32CaptureDriver {
     desktop_dc: Win32_Gdi::HDC,
-    destination_dc: Win32_Gdi::CreatedHDC,
+    compatible_dc: Win32_Gdi::CreatedHDC,
 }
 
 pub struct Win32Server {
@@ -31,9 +32,57 @@ pub struct Win32Server {
     capture_driver: Win32CaptureDriver
 }
 
+pub struct Win32PointerEvent {
+    pub(crate) dst_x: i16,
+    pub(crate) dst_y: i16,
+    pub(crate) button_mask: u8,
+}
+
+pub fn fire_pointer_event(
+    pointer_event: Win32PointerEvent
+) {
+    unsafe {
+        /*
+            RFB BUTTON MASKS (Observed):
+                BUTTON_UP:     0b00000000 = 0d0
+                BUTTON_LEFT:   0b00000001 = 0d1
+                BUTTON_MIDDLE: 0b00000010 = 0d2
+                BUTTON_RIGHT:  0b00000100 = 0d4
+                BTN_SCROLLUP:  0b00001000 = 0d8
+                BTN_SCROLLDN:  0b00010000 = 0d16
+        */
+
+        let input_dwflags: Win32_KeyboardAndMouse::MOUSE_EVENT_FLAGS = match pointer_event.button_mask {
+            0 => Win32_KeyboardAndMouse::MOUSEEVENTF_LEFTUP,
+            1 => Win32_KeyboardAndMouse::MOUSEEVENTF_LEFTDOWN,
+            _ => Win32_KeyboardAndMouse::MOUSEEVENTF_MOVE
+        };
+
+        let inputs_array: [Win32_KeyboardAndMouse::INPUT; 1] = [
+            Win32_KeyboardAndMouse::INPUT {
+                r#type: Win32_KeyboardAndMouse::INPUT_MOUSE,
+                Anonymous:  Win32_KeyboardAndMouse::INPUT_0 {
+                    mi: Win32_KeyboardAndMouse::MOUSEINPUT { 
+                        dx: pointer_event.dst_x as i32, 
+                        dy: pointer_event.dst_y as i32, 
+                        mouseData: 0,
+                        dwFlags: input_dwflags, 
+                        time: 0, 
+                        dwExtraInfo: Win32_WindowsAndMessaging::GetMessageExtraInfo().0 as usize
+                    }
+                }
+            }
+        ];
+
+        /* SEND WARP+ACTION INPUTS */
+        Win32_WindowsAndMessaging::SetCursorPos(pointer_event.dst_x as i32, pointer_event.dst_y as i32);
+        Win32_KeyboardAndMouse::SendInput(&inputs_array, mem::size_of::<Win32_KeyboardAndMouse::INPUT>() as i32);
+    }
+}
+
 pub fn rectangle_framebuffer_update(
     win32_server: &Win32Server,
-    win32_monitor: Win32Monitor, 
+    _win32_monitor: Win32Monitor, 
     encoding_type: i32,
     x_position: i16,
     y_position: i16,
@@ -42,7 +91,7 @@ pub fn rectangle_framebuffer_update(
 ) -> FrameBufferUpdate {
     unsafe {
         let compatible_bitmap = Win32_Gdi::CreateCompatibleBitmap(win32_server.capture_driver.desktop_dc, width as i32, height as i32);
-        let compatible_dc = Win32_Gdi::CreateCompatibleDC(win32_server.capture_driver.desktop_dc);
+        let compatible_dc = win32_server.capture_driver.compatible_dc;
         Win32_Gdi::SelectObject(compatible_dc, compatible_bitmap);
         Win32_Gdi::StretchBlt(
             compatible_dc,
@@ -163,7 +212,7 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
             match get_monitor_result {
                 Win32_Foundation::TRUE => {
                     WIN32_MONITORS.push(Win32Monitor { 
-                        monitor_handle, 
+                        _monitor_handle: monitor_handle, 
                         monitor_rect: monitor_info.rcMonitor
                     });
 
@@ -193,7 +242,7 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
                     monitors: WIN32_MONITORS.to_vec(),
                     capture_driver: Win32CaptureDriver { 
                         desktop_dc: desktop_device_context, 
-                        destination_dc: dest_device_context
+                        compatible_dc: dest_device_context
                     }
                 })));
             },

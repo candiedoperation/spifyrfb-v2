@@ -1,6 +1,6 @@
 use crate::{x11::{
-    self, fire_key_event, fire_pointer_event, X11KeyEvent, X11PointerEvent, X11Server,
-}, win32::{self, Win32Server}};
+    self, X11KeyEvent, X11PointerEvent, X11Server,
+}, win32::{self, Win32Server, Win32PointerEvent}};
 
 use image::EncodableLayout;
 use std::{env, error::Error, sync::Arc};
@@ -238,7 +238,21 @@ async fn process_clientserver_message(
             }
         }
         ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
-            WindowManager::WIN32(_) => {}
+            WindowManager::WIN32(_win32_server) => {
+                let button_mask = buffer[0];
+                let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
+                    .try_into()
+                    .unwrap_or(0);
+                let dst_y = (((buffer[3] as u16) << 8) | buffer[4] as u16)
+                    .try_into()
+                    .unwrap_or(0);
+
+                win32::fire_pointer_event(Win32PointerEvent { 
+                    dst_x,
+                    dst_y,
+                    button_mask
+                });
+            }
             WindowManager::X11(x11_server) => {
                 let mut button_mask = buffer[0];
                 let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
@@ -274,7 +288,7 @@ async fn process_clientserver_message(
                     button_mask,
                 };
 
-                fire_pointer_event(
+                x11::fire_pointer_event(
                     x11_server,
                     x11_server.displays[0].clone(),
                     x11_pointer_event,
@@ -296,7 +310,7 @@ async fn process_clientserver_message(
             match wm.as_ref() {
                 WindowManager::WIN32(_) => {}
                 WindowManager::X11(x11_server) => {
-                    fire_key_event(&x11_server, x11_server.displays[0].clone(), x11_keyevent);
+                    x11::fire_key_event(&x11_server, x11_server.displays[0].clone(), x11_keyevent);
                 }
             }
         }
@@ -463,7 +477,6 @@ async fn write_serverinit_message(
 async fn init_serverinit_handshake(client: TcpStream, wm: Arc<WindowManager>) {
     match wm.as_ref() {
         WindowManager::WIN32(win32_server) => {
-            println!("DISPLAY_STRUCT: {:?}", win32::get_display_struct(win32_server.monitors[0].clone()));
             write_serverinit_message(
                 client, 
                 win32::get_display_struct(win32_server.monitors[0].clone()), 
