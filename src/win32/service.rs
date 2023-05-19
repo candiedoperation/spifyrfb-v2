@@ -17,6 +17,8 @@
 */
 
 use std::ffi::c_void;
+use std::fs;
+use std::ptr;
 
 use windows::core as Win32_Core;
 use windows::Win32::Foundation as Win32_Foundation;
@@ -66,6 +68,9 @@ unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core:
 
             /* UPDATE FUTURE STATUS HANDLER AND RUNNING STATUS WITH Win32 SERVICES */
             Win32_Services::SetServiceStatus(SERVICE_HANDLER, &service_status);
+
+            /* FUTURE FUNCTION EXECUTION */
+            start_app();
         },
         Err(_) => {
             /* RETURN SERVICE FAILURE */
@@ -95,5 +100,40 @@ unsafe extern "system" fn event_handler(_control: u32, _control_event: u32, _con
             /* DO NOTHING IF EVENT IS NOT RECOGNIZED */
             Win32_Foundation::NO_ERROR.0
         }
+    }
+}
+
+fn start_app() {
+    unsafe {
+        let mut app_path = "C:\\Windows\\System32\\notepad.exe\0".encode_utf16().collect::<Vec<_>>();
+        app_path.push(0);
+
+        let startup_info = Win32_Threading::STARTUPINFOW { ..Default::default() };
+        let mut proc_info = Win32_Threading::PROCESS_INFORMATION { ..Default::default() };
+        let mut user_token_handle: Win32_Foundation::HANDLE = Win32_Foundation::HANDLE::default();
+
+        Win32_RemoteDesktop::WTSQueryUserToken(
+            Win32_RemoteDesktop::WTSGetActiveConsoleSessionId(),
+            &mut user_token_handle
+        );
+
+        /* CALL CREATEPROCESSASUSERW */
+        let result = Win32_Threading::CreateProcessAsUserW(
+            user_token_handle,
+            Win32_Core::PCWSTR::from_raw(app_path.as_ptr()), 
+            Win32_Core::PWSTR::null(), 
+            Option::None, 
+            Option::None, 
+            Win32_Foundation::TRUE, 
+            Win32_Threading::NORMAL_PRIORITY_CLASS, 
+            Option::None, 
+            Option::None, 
+            &startup_info, 
+            &mut proc_info
+        );
+
+        /* PRINT CREATEPROCESS RESULT */
+        let data = "Result: ".to_owned() + result.0.to_string().as_str() + " -> " + Win32_Foundation::GetLastError().0.to_string().as_str();
+        fs::write("C:\\spifyresult.txt", data).unwrap_or(println!("Failure"));
     }
 }
