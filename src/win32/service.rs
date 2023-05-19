@@ -17,14 +17,17 @@
 */
 
 use std::ffi::c_void;
-use std::fs;
-use std::ptr;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::mem;
 
 use windows::core as Win32_Core;
+use windows::Win32::Security as Win32_Security;
 use windows::Win32::Foundation as Win32_Foundation;
 use windows::Win32::System::Services as Win32_Services;
 use windows::Win32::System::Threading as Win32_Threading;
 use windows::Win32::System::RemoteDesktop as Win32_RemoteDesktop;
+use windows::Win32::System::Diagnostics::ToolHelp as Win32_ToolHelp;
 
 struct SpifyRFBService;
 impl SpifyRFBService {
@@ -105,21 +108,68 @@ unsafe extern "system" fn event_handler(_control: u32, _control_event: u32, _con
 
 fn start_app() {
     unsafe {
-        let mut app_path = "C:\\Windows\\System32\\notepad.exe\0".encode_utf16().collect::<Vec<_>>();
+        let mut output_file = OpenOptions::new().append(true).write(true).open("C:\\spifyresult2.txt").unwrap();
+        let mut app_path = "C:\\Windows\\System32\\cmd.exe\0".encode_utf16().collect::<Vec<_>>();
         app_path.push(0);
 
-        let startup_info = Win32_Threading::STARTUPINFOW { ..Default::default() };
-        let mut proc_info = Win32_Threading::PROCESS_INFORMATION { ..Default::default() };
-        let mut user_token_handle: Win32_Foundation::HANDLE = Win32_Foundation::HANDLE::default();
+        /* GET PROCESS ID OF winlogon.exe */
+        let snapshot_handle = 
+            Win32_ToolHelp::CreateToolhelp32Snapshot(
+                Win32_ToolHelp::TH32CS_SNAPPROCESS, 
+                0
+        ).unwrap();
 
-        Win32_RemoteDesktop::WTSQueryUserToken(
-            Win32_RemoteDesktop::WTSGetActiveConsoleSessionId(),
-            &mut user_token_handle
+        let mut winlogon_process32_ids: Vec<u32> = vec![];
+        let mut process32: Win32_ToolHelp::PROCESSENTRY32 = Win32_ToolHelp::PROCESSENTRY32 { 
+            dwSize: mem::size_of::<Win32_ToolHelp::PROCESSENTRY32>() as u32, 
+            ..Default::default()     
+        };
+
+        if Win32_ToolHelp::Process32First(snapshot_handle, &mut process32) == Win32_Foundation::TRUE {
+            loop {
+                if String::from_utf8_lossy(&process32.szExeFile).to_lowercase().contains("winlogon.exe") == true {
+                    winlogon_process32_ids.push((&process32.th32ProcessID).to_owned());
+                }
+
+                if Win32_ToolHelp::Process32Next(snapshot_handle, &mut process32) == Win32_Foundation::TRUE {
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        /* Find which winlogon is a part of current Terminal Service Session */
+        /* use ProcessIdToSessionId() */
+        let winlogon_process_id = winlogon_process32_ids[0];
+
+        let mut winlogin_process_handle: Win32_Foundation::HANDLE = Win32_Foundation::HANDLE::default();
+        Win32_Threading::OpenProcessToken(
+            Win32_Threading::OpenProcess(
+                Win32_Threading::PROCESS_ALL_ACCESS, 
+                Win32_Foundation::FALSE, 
+                winlogon_process_id
+            ).unwrap(), 
+            Win32_Security::TOKEN_ALL_ACCESS,
+            &mut winlogin_process_handle
         );
+
+        /* 
+            let mut user_token_handle: Win32_Foundation::HANDLE = Win32_Foundation::HANDLE::default();
+            Win32_RemoteDesktop::WTSQueryUserToken(
+                Win32_RemoteDesktop::WTSGetActiveConsoleSessionId(),
+                &mut user_token_handle
+            ); 
+        */
+
+        let mut startup_info = Win32_Threading::STARTUPINFOW { ..Default::default() };
+        let mut proc_info = Win32_Threading::PROCESS_INFORMATION { ..Default::default() };
+        let mut lp_desktop = String::from(r"winsta0\default").encode_utf16().collect::<Vec<_>>(); lp_desktop.push(0);
+        startup_info.lpDesktop = Win32_Core::PWSTR::from_raw(lp_desktop.as_mut_ptr());
 
         /* CALL CREATEPROCESSASUSERW */
         let result = Win32_Threading::CreateProcessAsUserW(
-            user_token_handle,
+            winlogin_process_handle,
             Win32_Core::PCWSTR::from_raw(app_path.as_ptr()), 
             Win32_Core::PWSTR::null(), 
             Option::None, 
@@ -134,6 +184,6 @@ fn start_app() {
 
         /* PRINT CREATEPROCESS RESULT */
         let data = "Result: ".to_owned() + result.0.to_string().as_str() + " -> " + Win32_Foundation::GetLastError().0.to_string().as_str();
-        fs::write("C:\\spifyresult.txt", data).unwrap_or(println!("Failure"));
+        output_file.write_all(data.as_bytes()).unwrap();
     }
 }
