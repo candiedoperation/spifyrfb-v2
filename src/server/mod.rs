@@ -302,15 +302,20 @@ async fn process_clientserver_message(
                 | (buffer[5] as u32) << 8
                 | (buffer[6] as u32);
 
-            let x11_keyevent = X11KeyEvent {
-                key_down: down_flag,
-                key_sym,
-            };
-
             match wm.as_ref() {
-                WindowManager::WIN32(_) => {}
+                WindowManager::WIN32(win32_server) => {
+                    /* SEND WIN32 KEYPRESS EVENT */
+                    win32::fire_key_event(win32_server, key_sym, down_flag);
+                }
                 WindowManager::X11(x11_server) => {
-                    x11::fire_key_event(&x11_server, x11_server.displays[0].clone(), x11_keyevent);
+                    x11::fire_key_event(
+                        &x11_server, 
+                        x11_server.displays[0].clone(), 
+                        X11KeyEvent {
+                            key_down: down_flag,
+                            key_sym,
+                        }
+                    );
                 }
             }
         }

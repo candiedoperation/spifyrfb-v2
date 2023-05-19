@@ -1,3 +1,5 @@
+mod keycodes;
+use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
 use windows::Win32::Foundation::BOOL;
@@ -31,13 +33,39 @@ struct Win32CaptureDriver {
 
 pub struct Win32Server {
     pub(crate) monitors: Vec<Win32Monitor>,
-    capture_driver: Win32CaptureDriver
+    capture_driver: Win32CaptureDriver,
+    keysym_vk_map: HashMap<u32, Win32_KeyboardAndMouse::VIRTUAL_KEY>
 }
 
 pub struct Win32PointerEvent {
     pub(crate) dst_x: i16,
     pub(crate) dst_y: i16,
     pub(crate) button_mask: u8,
+}
+
+pub fn fire_key_event(
+    win32_server: &Win32Server,
+    keysym: u32,
+    down_flag: u8
+) {
+    unsafe {
+        let mut inputs_array: [Win32_KeyboardAndMouse::INPUT; 1] = [
+            Win32_KeyboardAndMouse::INPUT {
+                r#type: Win32_KeyboardAndMouse::INPUT_KEYBOARD,
+                Anonymous:  Win32_KeyboardAndMouse::INPUT_0 {
+                    ki: Win32_KeyboardAndMouse::KEYBDINPUT { 
+                        wVk: *win32_server.keysym_vk_map.get(&keysym).unwrap_or(&Win32_KeyboardAndMouse::VIRTUAL_KEY(0)), 
+                        time: 0, 
+                        ..Default::default()
+                    }
+                }
+            }
+        ];
+
+        /* SEND KEYBOARD INPUT */
+        if down_flag == 0 { inputs_array[0].Anonymous.ki.dwFlags = Win32_KeyboardAndMouse::KEYEVENTF_KEYUP }
+        Win32_KeyboardAndMouse::SendInput(&inputs_array, mem::size_of::<Win32_KeyboardAndMouse::INPUT>() as i32);
+    }
 }
 
 pub fn fire_pointer_event(
@@ -92,7 +120,7 @@ pub fn fire_pointer_event(
                         mouseData: input_mousedata,
                         dwFlags: Win32_KeyboardAndMouse::MOUSEEVENTF_ABSOLUTE | input_dwflags, 
                         time: 0, 
-                        dwExtraInfo: Win32_WindowsAndMessaging::GetMessageExtraInfo().0 as usize
+                        ..Default::default()
                     }
                 }
             }
@@ -262,9 +290,11 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
             Win32_Foundation::TRUE => {
                 let desktop_device_context = Win32_Gdi::GetDC(Win32_Foundation::HWND::default());
                 let dest_device_context = Win32_Gdi::CreateCompatibleDC(desktop_device_context);
-        
+                let keysym_vk_map = keycodes::create_keysym_vk_map();
+
                 return Ok(Arc::from(WindowManager::WIN32(Win32Server {
                     monitors: WIN32_MONITORS.to_vec(),
+                    keysym_vk_map,
                     capture_driver: Win32CaptureDriver { 
                         desktop_dc: desktop_device_context, 
                         compatible_dc: dest_device_context
