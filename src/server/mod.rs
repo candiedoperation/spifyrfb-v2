@@ -1,3 +1,21 @@
+/*
+    SpifyRFB - Modern RFB Server implementation using Rust
+    Copyright (C) 2023  Atheesh Thirumalairajan
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 use crate::{x11::{
     self, X11KeyEvent, X11PointerEvent, X11Server,
 }, win32::{self, Win32Server, Win32PointerEvent}};
@@ -638,4 +656,4 @@ pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
         },
         os => Err(("Spify RFB doesn't support ".to_owned() + os).into()),
     }
-}    
+}
