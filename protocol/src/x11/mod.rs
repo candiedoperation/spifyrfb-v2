@@ -21,7 +21,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::server::{
     self, FrameBufferRectangle, FrameBufferUpdate, PixelFormat, RFBEncodingType, RFBServerInit,
-    ServerToClientMessage, WindowManager,
+    ServerToClientMessage, WindowManager, encoding_raw,
 };
 
 use x11rb::{
@@ -205,7 +205,7 @@ pub fn fullscreen_framebuffer_update(
                 width: x11_screen.width_in_pixels,
                 height: x11_screen.height_in_pixels,
                 encoding_type: RFBEncodingType::RAW,
-                pixel_data,
+                pixel_data: encoding_raw::get_pixel_data(pixel_data)
             });
         }
         _ => {}
@@ -261,7 +261,7 @@ pub fn rectangle_framebuffer_update(
                 width,
                 height,
                 encoding_type: RFBEncodingType::RAW,
-                pixel_data,
+                pixel_data: encoding_raw::get_pixel_data(pixel_data)
             });
         }
         _ => {}

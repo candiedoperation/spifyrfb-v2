@@ -35,6 +35,7 @@ use crate::server::RFBEncodingType;
 use crate::server::RFBServerInit;
 use crate::server::ServerToClientMessage;
 use crate::server::WindowManager;
+use crate::server::encoding_raw;
 
 #[derive(Clone, Debug)]
 pub struct Win32Monitor {
@@ -213,7 +214,7 @@ pub fn rectangle_framebuffer_update(
                     width,
                     height,
                     encoding_type: RFBEncodingType::RAW,
-                    pixel_data
+                    pixel_data: encoding_raw::get_pixel_data(pixel_data)
                 });
             }
             _ => {}
