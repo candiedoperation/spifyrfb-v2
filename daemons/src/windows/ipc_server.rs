@@ -54,14 +54,14 @@ fn create_ipc_server() {
 
                     if client_connection == Win32_Foundation::TRUE {
                         /* CLIENT CONNECTED, MOVE TO NEW THREAD */
-                        let thread_handle = Win32_System::CreateThread(
+                        /* let thread_handle = Win32_System::CreateThread(
                             Option::None, 
                             0, 
                             lpstartaddress, 
                             Some(&ipc_pipe_handle as *mut _), 
                             dwcreationflags, 
                             lpthreadid
-                        );
+                        ); */
                     } else {
                         println!("IPC Pipe Client Connection Failed");
                     }
