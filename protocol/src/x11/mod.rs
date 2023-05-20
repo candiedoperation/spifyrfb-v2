@@ -18,6 +18,7 @@
 
 mod keycodes;
 use std::{collections::HashMap, sync::Arc};
+
 use crate::server::{
     self, FrameBufferRectangle, FrameBufferUpdate, PixelFormat, RFBEncodingType, RFBServerInit,
     ServerToClientMessage, WindowManager,

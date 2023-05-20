@@ -1,12 +1,10 @@
-[package]
-name = "spifyrfb"
-filename = "SpifyRFB"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = [
+    "protocol",
+    "daemons"
+]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+[workspace.dependencies]
 image = "0.24.6"
 tokio = { version = "1", features = ["full"] }
 x11rb = { version = "0.11.1", features = ["all-extensions"] }

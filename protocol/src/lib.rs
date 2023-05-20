@@ -16,9 +16,9 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+mod x11;
+mod win32;
 pub mod server;
-pub mod x11;
-pub mod win32;
 pub mod info {
     pub fn license() -> String {
         String::from("\nSpifyRFB  Copyright (C) 2023  Atheesh Thirumalairajan\nThis program comes with ABSOLUTELY NO WARRANTY; for details type `show w'.\nThis is free software, and you are welcome to redistribute it\nunder certain conditions; type `show c' for details.\n")

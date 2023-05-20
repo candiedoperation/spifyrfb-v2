@@ -1,0 +1,10 @@
+[package]
+name = "spifyrfb-protocol"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+image = { workspace = true }
+tokio = { workspace = true }
+x11rb = { workspace = true }
+windows = { workspace = true }

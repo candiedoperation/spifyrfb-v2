@@ -17,7 +17,6 @@
 */
 
 mod keycodes;
-pub mod service;
 use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;

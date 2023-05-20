@@ -1,25 +1,5 @@
-/*
-    SpifyRFB - Modern RFB Server implementation using Rust
-    Copyright (C) 2023  Atheesh Thirumalairajan
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
-
-use crate::{x11::{
-    self, X11KeyEvent, X11PointerEvent, X11Server,
-}, win32::{self, Win32Server, Win32PointerEvent}};
-
+use crate::x11;
+use crate::win32;
 use image::EncodableLayout;
 use std::{env, error::Error, sync::Arc};
 use tokio::{
@@ -106,8 +86,8 @@ pub struct FrameBufferUpdate {
 }
 
 pub enum WindowManager {
-    X11(X11Server),
-    WIN32(Win32Server),
+    X11(x11::X11Server),
+    WIN32(win32::Win32Server),
 }
 
 struct RFBServer {
@@ -265,7 +245,7 @@ async fn process_clientserver_message(
                     .try_into()
                     .unwrap_or(0);
 
-                win32::fire_pointer_event(Win32PointerEvent { 
+                win32::fire_pointer_event(win32::Win32PointerEvent { 
                     dst_x,
                     dst_y,
                     button_mask
@@ -300,7 +280,7 @@ async fn process_clientserver_message(
                     _ => 0,
                 };
 
-                let x11_pointer_event = X11PointerEvent {
+                let x11_pointer_event = x11::X11PointerEvent {
                     dst_x,
                     dst_y,
                     button_mask,
@@ -329,7 +309,7 @@ async fn process_clientserver_message(
                     x11::fire_key_event(
                         &x11_server, 
                         x11_server.displays[0].clone(), 
-                        X11KeyEvent {
+                        x11::X11KeyEvent {
                             key_down: down_flag,
                             key_sym,
                         }
