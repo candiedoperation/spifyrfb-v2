@@ -6,7 +6,15 @@ use spifyrfb_protocol::info;
 async fn main() -> Result<(), Box<dyn Error>> {
     println!("{}", info::license());
     println!("Version: {}, OS: {}", info::srv_version(), env::consts::OS);
-    
-    spifyrfb_protocol::server::create(String::from("127.0.0.1:8080")).await?;
+
+    let mut launch_ip: String = String::from("");
+    for arg in env::args_os() {
+        if arg.to_string_lossy().starts_with("--ip=") {
+            launch_ip = String::from(arg.to_string_lossy().replace("--ip=", "").trim());
+        }
+    }
+
+    /* CREATE PROTOCOL SERVER WITH LAUNCH IP */
+    spifyrfb_protocol::server::create(launch_ip).await.unwrap_or({});
     Ok(())
 }

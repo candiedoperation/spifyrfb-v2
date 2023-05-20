@@ -599,15 +599,23 @@ pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
             match x11::connect() {
                 Ok(wm_arc) => {
                     /* Create a Tokio TCP Listener on Free Port */
-                    let listener = TcpListener::bind(ip_address).await?;
-                    loop {
-                        let (client, _) = listener.accept().await?;
-                        let wm = Arc::clone(&wm_arc);
-                        tokio::spawn(async move {
-                            // Handle The Client
-                            println!("Connection Established: {:?}", client);
-                            init_handshake(client, wm).await;
-                        });
+                    match TcpListener::bind(ip_address).await {
+                        Ok(listener) => {
+                            println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
+                            loop {
+                                let (client, _) = listener.accept().await?;
+                                let wm = Arc::clone(&wm_arc);
+                                tokio::spawn(async move {
+                                    // Handle The Client
+                                    println!("Connection Established: {:?}", client);
+                                    init_handshake(client, wm).await;
+                                });
+                            }
+                        },
+                        Err(err) => {
+                            println!("IP Address Binding Failed -> {}", err.to_string());
+                            Err(err.into())
+                        }
                     }
                 }
                 Err(_) => {
@@ -618,15 +626,23 @@ pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
         "windows" => {
             match win32::connect() {
                 Ok(wm_arc) => {
-                    let listener = TcpListener::bind(ip_address).await?;
-                    loop {
-                        let (client, _) = listener.accept().await?;
-                        let wm = Arc::clone(&wm_arc);
-                        tokio::spawn(async move {
-                            // Handle The Client
-                            println!("Connection Established: {:?}", client);
-                            init_handshake(client, wm).await;
-                        });
+                    match TcpListener::bind(ip_address).await {
+                        Ok(listener) => {
+                            println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
+                            loop {
+                                let (client, _) = listener.accept().await?;
+                                let wm = Arc::clone(&wm_arc);
+                                tokio::spawn(async move {
+                                    // Handle The Client
+                                    println!("Connection Established: {:?}", client);
+                                    init_handshake(client, wm).await;
+                                });
+                            }
+                        }
+                        Err(err) => {
+                            println!("IP Address Binding Failed -> {}", err.to_string());
+                            Err(err.into())
+                        }
                     }
                 }
                 Err(_) => {
