@@ -17,6 +17,7 @@
 */
 
 mod keycodes;
+pub mod ipc_client;
 use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
@@ -36,6 +37,18 @@ use crate::server::RFBServerInit;
 use crate::server::ServerToClientMessage;
 use crate::server::WindowManager;
 use crate::server::encoding_raw;
+
+trait ToU16Vec {
+    fn to_u16_vec(input: String) -> Vec<u16>;
+}
+
+impl ToU16Vec for String {
+    fn to_u16_vec(input: String) -> Vec<u16> {
+        let mut string_utf16 = input.encode_utf16().collect::<Vec<_>>();
+        string_utf16.push(0);
+        string_utf16
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Win32Monitor {

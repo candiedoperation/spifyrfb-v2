@@ -194,14 +194,9 @@ fn start_app() {
             &mut winlogin_process_handle
         );
 
-        /* 
-            let mut user_token_handle: Win32_Foundation::HANDLE = Win32_Foundation::HANDLE::default();
-            Win32_RemoteDesktop::WTSQueryUserToken(
-                Win32_RemoteDesktop::WTSGetActiveConsoleSessionId(),
-                &mut user_token_handle
-            ); 
-        */
-
+        /* CREATE IPC SERVER FOR CHILD COMMUNICATION */
+        ipc_server::create();
+        
         let mut startup_info = Win32_Threading::STARTUPINFOW { ..Default::default() };
         let mut proc_info = Win32_Threading::PROCESS_INFORMATION { ..Default::default() };
         let mut lp_desktop = String::from(r"winsta0\default").encode_utf16().collect::<Vec<_>>(); lp_desktop.push(0);
