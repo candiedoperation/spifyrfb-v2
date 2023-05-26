@@ -34,6 +34,13 @@ use windows::Win32::Storage::FileSystem as Win32_Filesystem;
 static PIPE_NAME: &str = r"\\.\pipe\spifywin32daemonpipe";
 static BUF_SIZE: u32 = 1024; /* 1KB */
 
+pub struct SpifyIPCClient;
+impl SpifyIPCClient {
+    pub fn a() {
+
+    }
+}
+
 pub fn create() {
     unsafe {
         Win32_Threading::CreateThread(
@@ -149,7 +156,12 @@ unsafe extern "system" fn handle_ipc_client(ipc_param: *mut c_void) -> u32 {
 
         /* PROCESS RESPONSE */
         let mut process_reply_string = String::from("");
-        get_request_response(process_request, pipe_bytes_read, &mut process_reply_string, &mut pipe_bytes_reply);
+        get_request_response(
+            String::from_raw_parts(process_request as _, pipe_bytes_read as usize, pipe_bytes_read as usize), 
+            &mut process_reply_string,
+            &mut pipe_bytes_reply
+        );
+
         pipe_read_success = Win32_Filesystem::WriteFile(
             pipe_handle.unwrap(), 
             Some(from_raw_parts(process_reply as _, pipe_bytes_reply as usize)), 
@@ -175,19 +187,21 @@ unsafe extern "system" fn handle_ipc_client(ipc_param: *mut c_void) -> u32 {
 }
 
 fn get_request_response(
-    process_request: *mut c_void,
-    process_request_bytes: u32,
+    request: String,
     process_reply: &mut String,
     pipe_reply_bytes: &mut u32
 ) {
-    unsafe {
-        let mut output_file = OpenOptions::new().append(true).write(true).open("C:\\spifyresult3.txt").unwrap();
-        output_file.write_all("Request: ".as_bytes()).unwrap();
-        output_file.write_all(from_raw_parts(process_request as _, process_request_bytes as usize)).unwrap(); 
-        output_file.write_all("\n".as_bytes()).unwrap();       
-    }
+    let mut output_file = OpenOptions::new().append(true).write(true).open("C:\\spifyresult3.txt").unwrap();
+    
+    let mut send_reply = |process_reply_string: String| {
+        *process_reply = process_reply_string.clone();
+        *pipe_reply_bytes = (process_reply_string.as_bytes().len() * mem::size_of::<char>()) as u32;
+    };
 
-    let process_reply_string = String::from("jaja");
-    *process_reply = process_reply_string.clone();
-    *pipe_reply_bytes = (process_reply_string.as_bytes().len() * mem::size_of::<char>()) as u32;
+    if request.starts_with("IPU:") {
+        let spifyrfb_protocol_ip = &request.as_bytes()[4..];
+        output_file.write_all(spifyrfb_protocol_ip).unwrap();
+        output_file.write_all("\n".as_bytes()).unwrap();       
+        send_reply(String::from("OK?:1"));
+    }
 }

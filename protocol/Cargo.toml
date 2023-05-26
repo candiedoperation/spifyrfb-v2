@@ -8,3 +8,4 @@ image = { workspace = true }
 tokio = { workspace = true }
 x11rb = { workspace = true }
 windows = { workspace = true }
+once_cell = { workspace = true }

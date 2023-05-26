@@ -1,4 +1,7 @@
 use std::ffi::c_void;
+use crate::api;
+
+use super::ToU16Vec;
 
 use windows::core as Win32_Core;
 use windows::Win32::System::Pipes as Win32_Pipes;
@@ -6,11 +9,28 @@ use windows::Win32::Foundation as Win32_Foundation;
 use windows::Win32::System::Threading as Win32_Threading;
 use windows::Win32::Storage::FileSystem as Win32_Filesystem;
 
-use super::ToU16Vec;
-
 /* DEFINE GLOBALS */
 static PIPE_NAME: &str = r"\\.\pipe\spifywin32daemonpipe";
 static BUF_SIZE: u32 = 1024; /* 1KB */
+
+pub type Win32Ipc = Win32_Foundation::HANDLE;
+trait API {
+    fn send_ip_address_update(self) -> Win32_Foundation::BOOL;
+}
+
+impl API for Win32Ipc {
+    fn send_ip_address_update(self) -> Win32_Foundation::BOOL {
+        unsafe {
+            let pipe_write_string = format!("IPU:{}", api::get_listening_ip_address());
+            Win32_Filesystem::WriteFile(
+                self,
+                Some(pipe_write_string.as_bytes()), 
+                Option::None, 
+                Option::None /* Not Overlapped */
+            )
+        }
+    }
+}
 
 pub fn create() {
     unsafe {
@@ -34,7 +54,6 @@ unsafe extern "system" fn listen(_thread_param: *mut c_void) -> u32 {
     let mut pipe_success: Win32_Foundation::BOOL = Win32_Foundation::FALSE;
 
     loop {
-        println!("Looping!");
         pipe_handle = Win32_Filesystem::CreateFileW(
             Win32_Core::PCWSTR::from_raw(String::to_u16_vec(PIPE_NAME.to_string()).as_ptr()), 
             Win32_Foundation::GENERIC_READ.0 | Win32_Foundation::GENERIC_WRITE.0,
@@ -76,17 +95,10 @@ unsafe extern "system" fn listen(_thread_param: *mut c_void) -> u32 {
         return 0;
     }
 
-    let pipe_write_string = String::from("hehe");
-    pipe_success = Win32_Filesystem::WriteFile(
-        pipe_handle, 
-        Some(pipe_write_string.as_bytes()), 
-        Some(&mut pipe_bytes_written), 
-        Option::None /* Not Overlapped */
-    );
-
-    if pipe_success == Win32_Foundation::FALSE {
-        println!("Pipe Write Error");
-        return 0;
+    /* Update Globals and send Handshake IP Update */
+    api::set_spify_ipc_server(api::SpifyIPCServer::Win32(pipe_handle));
+    if pipe_handle.send_ip_address_update() == Win32_Foundation::FALSE {
+        println!("IPC: Handshake IP Update Failed");
     }
 
     return 1;

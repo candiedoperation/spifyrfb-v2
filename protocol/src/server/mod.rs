@@ -19,6 +19,7 @@
 pub mod encoding_raw;
 pub mod encoding_trle;
 
+use crate::api;
 use crate::win32::ipc_client;
 use crate::x11;
 use crate::win32;
@@ -623,7 +624,9 @@ pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
                     /* Create a Tokio TCP Listener on Free Port */
                     match TcpListener::bind(ip_address).await {
                         Ok(listener) => {
+                            api::set_listening_ip_address(listener.local_addr().unwrap().to_string());
                             println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
+
                             loop {
                                 let (client, _) = listener.accept().await?;
                                 let wm = Arc::clone(&wm_arc);
@@ -650,6 +653,7 @@ pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
                 Ok(wm_arc) => {
                     match TcpListener::bind(ip_address).await {
                         Ok(listener) => {
+                            api::set_listening_ip_address(listener.local_addr().unwrap().to_string());
                             println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
 
                             /* Initialize Win32 IPC, Connect to Named Pipe */

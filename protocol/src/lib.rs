@@ -18,6 +18,7 @@
 
 mod x11;
 mod win32;
+pub mod api;
 pub mod server;
 pub mod info {
     pub fn license() -> String {
