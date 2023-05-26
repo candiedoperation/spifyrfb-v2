@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::mem;
 use crate::api;
 
 use super::ToU16Vec;
@@ -46,12 +47,9 @@ pub fn create() {
 }
 
 unsafe extern "system" fn listen(_thread_param: *mut c_void) -> u32 {
-    let mut pipe_bytes_read: u32 = 0;
-    let mut pipe_bytes_write: u32 = 0;
-    let mut pipe_bytes_written: u32 = 0;
     let pipe_mode: Win32_Pipes::NAMED_PIPE_MODE;
     let mut pipe_handle: Win32_Foundation::HANDLE;    
-    let mut pipe_success: Win32_Foundation::BOOL = Win32_Foundation::FALSE;
+    let mut pipe_success: Win32_Foundation::BOOL;
 
     loop {
         pipe_handle = Win32_Filesystem::CreateFileW(
@@ -101,5 +99,50 @@ unsafe extern "system" fn listen(_thread_param: *mut c_void) -> u32 {
         println!("IPC: Handshake IP Update Failed");
     }
 
+    loop {
+        let mut pipe_request: [u8; 1024] = [0; 1024];
+        let mut bytes_read: u32 = 0;
+
+        pipe_success = Win32_Filesystem::ReadFile(
+            pipe_handle,
+            Some(pipe_request.as_mut_ptr().cast()), 
+            BUF_SIZE * mem::size_of::<u8>() as u32, 
+            Some(&mut bytes_read),
+            Option::None
+        );
+
+        if pipe_success == Win32_Foundation::FALSE {
+            /* ERROR OCCURED */
+            break;
+        }
+
+        /* PROCESS RESPONSE */
+        let mut process_reply: String = String::from("");
+        get_request_response(
+            String::from_utf8_lossy(&pipe_request[0..bytes_read as usize]).to_string(), 
+            &mut process_reply
+        );
+
+        let pipe_success = Win32_Filesystem::WriteFile(
+            pipe_handle, 
+            Some(process_reply.as_bytes()), 
+            Option::None,
+            Option::None
+        );
+
+        if pipe_success == Win32_Foundation::FALSE {
+            /* PIPE FAILED TO WRITE */
+            break;
+        }
+    }
+
     return 1;
+}
+
+fn get_request_response(
+    request: String,
+    process_reply: &mut String
+) {
+    *process_reply = String::from("OK2");
+    println!("REQUEST: {:?}", request);
 }
