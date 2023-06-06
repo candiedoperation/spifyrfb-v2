@@ -16,7 +16,6 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-pub mod ipc_server;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fs::OpenOptions;
@@ -193,9 +192,6 @@ fn start_app() {
             Win32_Security::TOKEN_ALL_ACCESS,
             &mut winlogin_process_handle
         );
-
-        /* CREATE IPC SERVER FOR CHILD COMMUNICATION */
-        ipc_server::create();
         
         let mut startup_info = Win32_Threading::STARTUPINFOW { ..Default::default() };
         let mut proc_info = Win32_Threading::PROCESS_INFORMATION { ..Default::default() };

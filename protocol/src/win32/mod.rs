@@ -17,7 +17,6 @@
 */
 
 mod keycodes;
-pub mod ipc_client;
 use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
