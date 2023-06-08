@@ -36,6 +36,7 @@ use crate::server::RFBServerInit;
 use crate::server::ServerToClientMessage;
 use crate::server::WindowManager;
 use crate::server::encoding_raw;
+use crate::server::encoding_zlib;
 use crate::server::encoding_zrle;
 use crate::server::encoding_zrle::ZRLE;
 
@@ -244,6 +245,16 @@ pub fn rectangle_framebuffer_update(
                         bytes_per_pixel: 32,
                         framebuffer: pixel_data,
                     })
+                });
+            },
+            RFBEncodingType::ZLIB => {
+                frame_buffer.push(FrameBufferRectangle { 
+                    x_position: 0, 
+                    y_position: 0, 
+                    width, 
+                    height, 
+                    encoding_type: RFBEncodingType::ZLIB, 
+                    pixel_data: encoding_zlib::get_pixel_data(pixel_data)
                 });
             }
             _ => {}

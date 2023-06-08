@@ -112,7 +112,9 @@ pub struct FrameBufferUpdate {
 }
 
 pub enum WindowManager {
+    #[cfg(target_os = "linux")]
     X11(x11::X11Server),
+
     #[cfg(target_os = "windows")]
     WIN32(win32::Win32Server),
 }
@@ -206,7 +208,8 @@ async fn process_clientserver_message(
                         ),
                     )
                     .await;
-                }
+                },
+                #[cfg(target_os = "linux")]
                 WindowManager::X11(x11_server) => {
                     let x11_screen = x11_server.displays[0].clone();
                     write_framebuffer_update_message(
@@ -243,15 +246,16 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_server.monitors[0].clone(),
-                            RFBEncodingType::RAW,
-                            0,
-                            0,
+                            RFBEncodingType::ZLIB,
+                            x_position as i16,
+                            y_position as i16,
                             width,
                             height
                         ),
                     )
                     .await;
-                }
+                },
+                #[cfg(target_os = "linux")]
                 WindowManager::X11(x11_server) => {
                     write_framebuffer_update_message(
                         client_tx,
@@ -285,7 +289,8 @@ async fn process_clientserver_message(
                     dst_y,
                     button_mask
                 }, win32_server.monitors[0].clone());
-            }
+            },
+            #[cfg(target_os = "linux")]
             WindowManager::X11(x11_server) => {
                 let mut button_mask = buffer[0];
                 let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
@@ -340,7 +345,8 @@ async fn process_clientserver_message(
                 WindowManager::WIN32(win32_server) => {
                     /* SEND WIN32 KEYPRESS EVENT */
                     win32::fire_key_event(win32_server, key_sym, down_flag);
-                }
+                },
+                #[cfg(target_os = "linux")]
                 WindowManager::X11(x11_server) => {
                     x11::fire_key_event(
                         &x11_server, 
@@ -524,6 +530,7 @@ async fn init_serverinit_handshake(client: TcpStream, wm: Arc<WindowManager>) {
             )
             .await;
         },
+        #[cfg(target_os = "linux")]
         WindowManager::X11(x11_server) => {
             /* X11-DISPLAYSTRUCT API */
             write_serverinit_message(
