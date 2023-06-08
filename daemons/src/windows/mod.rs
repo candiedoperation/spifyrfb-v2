@@ -72,6 +72,7 @@ pub fn create() {
     }
 }
 
+
 unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core::PWSTR) {
     let service_handler_result = Win32_Services::RegisterServiceCtrlHandlerExW(
         Win32_Core::PCWSTR(SpifyRFBService::SERVICE_NAME.to_owned().as_mut_ptr().cast()), 
@@ -104,6 +105,7 @@ unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core:
         }
     } 
 }
+
 
 unsafe extern "system" fn event_handler(_control: u32, _control_event: u32, _control_data: *mut c_void, _control_context: *mut c_void) -> u32 {
     match _control {
@@ -145,6 +147,7 @@ unsafe extern "system" fn event_handler(_control: u32, _control_event: u32, _con
         }
     }
 }
+
 
 fn start_app() {
     unsafe {

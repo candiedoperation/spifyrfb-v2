@@ -21,6 +21,7 @@ use std::env;
 fn main() {
     match env::consts::OS {
         "windows" => {
+            #[cfg(target_os = "windows")]
             spifyrfb_daemon::windows::create();
         }
         os => {

@@ -1,5 +1,4 @@
-use std::io::Write;
-use flate2::{write::ZlibEncoder, Compression};
+use flate2::{Compression, FlushCompress, Compress};
 
 pub struct ZRLE {
     pub width: u16,
@@ -18,21 +17,17 @@ pub fn get_pixel_data(pixel_data: ZRLE) -> Vec<u8> {
     }
 
     let mut encoded_structure: Vec<u8> = vec![];
-    let mut encoded_pixels = encode(ZRLE {
+    let encoded_pixels = encode(ZRLE {
         width: if pixel_data.width == 0 { 1 } else { pixel_data.width },
         height: if pixel_data.height == 0 { 1 } else { pixel_data.height },
         bytes_per_pixel: pixel_data.bytes_per_pixel,
         framebuffer: c_pixels,
     });
-
+    
     /* Add encoded_structure fields */
-    for encoded_pixels_length in (encoded_pixels.len() as u32).to_le_bytes() {
-        encoded_structure.push(encoded_pixels_length);
-    }
-
-    /* Add Pixel Data */
-    encoded_structure.append(&mut encoded_pixels);
-    return encoded_structure;
+    encoded_structure.extend_from_slice(&(encoded_pixels.len() as u32).to_be_bytes());
+    encoded_structure.extend_from_slice(encoded_pixels.as_slice());
+    encoded_structure
 }
 
 fn encode(pixel_data: ZRLE) -> Vec<u8> {
@@ -67,9 +62,15 @@ fn encode(pixel_data: ZRLE) -> Vec<u8> {
     }
 
     let flattened_tiles= zrle_tiles.into_iter().flatten().collect::<Vec<u8>>();
-    let mut zlib_encoder: ZlibEncoder<Vec<u8>> = ZlibEncoder::new(Vec::new(), Compression::new(6));
-    zlib_encoder.write_all(flattened_tiles.as_slice()).unwrap();
-    let compressed_tiles = zlib_encoder.finish();
+    let mut compressed_tiles: Vec<u8> = Vec::with_capacity(flattened_tiles.len());
 
-    compressed_tiles.unwrap()
+    let mut compressor = Compress::new(Compression::new(6), true);
+    compressor.compress_vec(
+        flattened_tiles.as_slice(), 
+        &mut compressed_tiles,
+        FlushCompress::None
+    ).unwrap();
+
+    /* Send Compressed Tiles */
+    compressed_tiles
 }

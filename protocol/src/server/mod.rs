@@ -18,10 +18,14 @@
 
 pub mod encoding_raw;
 pub mod encoding_zrle;
+pub mod encoding_zlib;
 
-use crate::x11;
+#[cfg(target_os = "windows")]
 use crate::win32;
-use image::EncodableLayout;
+
+#[cfg(target_os = "linux")]
+use crate::x11;
+
 use std::{env, error::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -84,6 +88,7 @@ impl RFBEncodingType {
     pub const COPY_RECT: i32 = 1;
     pub const RRE: i32 = 2;
     pub const HEX_TILE: i32 = 5;
+    pub const ZLIB: i32 = 6;
     pub const TRLE: i32 = 15;
     pub const ZRLE: i32 = 16;
 }
@@ -108,6 +113,7 @@ pub struct FrameBufferUpdate {
 
 pub enum WindowManager {
     X11(x11::X11Server),
+    #[cfg(target_os = "windows")]
     WIN32(win32::Win32Server),
 }
 
@@ -165,7 +171,7 @@ async fn write_framebuffer_update_message(
             .await
             .unwrap_or(());
         client_tx
-            .write_all(framebuffer.pixel_data.as_bytes())
+            .write_all(framebuffer.pixel_data.as_slice())
             .await
             .unwrap_or(());
     }
@@ -184,6 +190,7 @@ async fn process_clientserver_message(
             /* SET PIXEL FORMAT IN FUTURE RELEASES */
 
             match wm.as_ref() {
+                #[cfg(target_os = "windows")]
                 WindowManager::WIN32(win32_server) => {
                     let win32_monitor = win32_server.monitors[0].clone();
                     write_framebuffer_update_message(
@@ -201,12 +208,17 @@ async fn process_clientserver_message(
                     .await;
                 }
                 WindowManager::X11(x11_server) => {
+                    let x11_screen = x11_server.displays[0].clone();
                     write_framebuffer_update_message(
                         client_tx,
-                        x11::fullscreen_framebuffer_update(
+                        x11::rectangle_framebuffer_update(
                             &x11_server,
-                            x11_server.displays[0].clone(),
+                            x11_screen.clone(),
                             RFBEncodingType::RAW,
+                            0,
+                            0,
+                            x11_screen.width_in_pixels,
+                            x11_screen.height_in_pixels,
                         ),
                     )
                     .await;
@@ -224,6 +236,7 @@ async fn process_clientserver_message(
             let height: u16 = ((buffer[7] as u16) << 8) | buffer[8] as u16;
 
             match wm.as_ref() {
+                #[cfg(target_os = "windows")]
                 WindowManager::WIN32(win32_server) => {
                     write_framebuffer_update_message(
                         client_tx,
@@ -245,7 +258,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_server.displays[0].clone(),
-                            RFBEncodingType::RAW,
+                            RFBEncodingType::ZLIB,
                             x_position.try_into().unwrap(),
                             y_position.try_into().unwrap(),
                             width,
@@ -257,6 +270,7 @@ async fn process_clientserver_message(
             }
         }
         ClientToServerMessage::POINTER_EVENT => match wm.as_ref() {
+            #[cfg(target_os = "windows")]
             WindowManager::WIN32(win32_server) => {
                 let button_mask = buffer[0];
                 let dst_x = (((buffer[1] as u16) << 8) | buffer[2] as u16)
@@ -322,6 +336,7 @@ async fn process_clientserver_message(
                 | (buffer[6] as u32);
 
             match wm.as_ref() {
+                #[cfg(target_os = "windows")]
                 WindowManager::WIN32(win32_server) => {
                     /* SEND WIN32 KEYPRESS EVENT */
                     win32::fire_key_event(win32_server, key_sym, down_flag);
@@ -482,7 +497,7 @@ async fn write_serverinit_message(
         .await
         .unwrap_or(());
     client
-        .write(server_init.server_pixelformat.padding.as_bytes())
+        .write(server_init.server_pixelformat.padding.as_slice())
         .await
         .unwrap_or(0);
     client
@@ -500,6 +515,7 @@ async fn write_serverinit_message(
 
 async fn init_serverinit_handshake(client: TcpStream, wm: Arc<WindowManager>) {
     match wm.as_ref() {
+        #[cfg(target_os = "windows")]
         WindowManager::WIN32(win32_server) => {
             write_serverinit_message(
                 client, 
@@ -614,6 +630,7 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
 
 pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
     match env::consts::OS {
+        #[cfg(target_os = "linux")]
         "linux" => {
             /* PERSISTENT X11 CONNECTION TO PREVENT A ZILLION CONNECTIONS ON CLIENT EVENTS */
             /* TRY WAYLAND DETECTION */
@@ -645,6 +662,7 @@ pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
                 }
             }
         },
+        #[cfg(target_os = "windows")]
         "windows" => {
             match win32::connect() {
                 Ok(wm_arc) => {

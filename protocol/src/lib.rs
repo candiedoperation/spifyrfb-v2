@@ -16,8 +16,12 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-mod x11;
+#[cfg(target_os = "windows")]
 mod win32;
+
+#[cfg(target_os = "linux")]
+mod x11;
+
 pub mod server;
 pub mod info {
     pub fn license() -> String {

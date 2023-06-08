@@ -21,7 +21,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::server::{
     self, FrameBufferRectangle, FrameBufferUpdate, PixelFormat, RFBEncodingType, RFBServerInit,
-    ServerToClientMessage, WindowManager, encoding_raw,
+    ServerToClientMessage, WindowManager, encoding_raw, encoding_zrle::{self, ZRLE}, encoding_zlib,
 };
 
 use x11rb::{
@@ -167,58 +167,6 @@ pub fn get_display_struct(x11_server: &X11Server, x11_screen: Screen) -> server:
     }
 }
 
-pub fn fullscreen_framebuffer_update(
-    x11_server: &X11Server,
-    x11_screen: Screen,
-    encoding_type: i32,
-) -> FrameBufferUpdate {
-    let x11_cookie = xproto::get_image(
-        &x11_server.connection,
-        ImageFormat::Z_PIXMAP,
-        x11_screen.root,
-        0,
-        0,
-        x11_screen.width_in_pixels,
-        x11_screen.height_in_pixels,
-        !0,
-    )
-    .unwrap()
-    .reply();
-
-    let pixel_chunks = x11_cookie.unwrap().data;
-    let pixel_chunks: Vec<&[u8]> = pixel_chunks.chunks(4).collect();
-    let mut pixel_data: Vec<u8> = vec![];
-
-    for pixel in pixel_chunks {
-        pixel_data.push(pixel[0]);
-        pixel_data.push(pixel[1]);
-        pixel_data.push(pixel[2]);
-        pixel_data.push(255);
-    }
-
-    let mut frame_buffer: Vec<FrameBufferRectangle> = vec![];
-    match encoding_type {
-        RFBEncodingType::RAW => {
-            frame_buffer.push(FrameBufferRectangle {
-                x_position: 0,
-                y_position: 0,
-                width: x11_screen.width_in_pixels,
-                height: x11_screen.height_in_pixels,
-                encoding_type: RFBEncodingType::RAW,
-                pixel_data: encoding_raw::get_pixel_data(pixel_data)
-            });
-        }
-        _ => {}
-    }
-
-    FrameBufferUpdate {
-        message_type: ServerToClientMessage::FRAME_BUFFER_UPDATE,
-        padding: 0,
-        number_of_rectangles: 1,
-        frame_buffer,
-    }
-}
-
 pub fn rectangle_framebuffer_update(
     x11_server: &X11Server,
     x11_screen: Screen,
@@ -262,6 +210,31 @@ pub fn rectangle_framebuffer_update(
                 height,
                 encoding_type: RFBEncodingType::RAW,
                 pixel_data: encoding_raw::get_pixel_data(pixel_data)
+            });
+        },
+        RFBEncodingType::ZLIB => {
+            frame_buffer.push(FrameBufferRectangle {
+                x_position: x_position.try_into().unwrap(),
+                y_position: y_position.try_into().unwrap(),
+                width,
+                height,
+                encoding_type: RFBEncodingType::ZLIB,
+                pixel_data: encoding_zlib::get_pixel_data(pixel_data)
+            });
+        },
+        RFBEncodingType::ZRLE => {
+            frame_buffer.push(FrameBufferRectangle { 
+                x_position: 0, 
+                y_position: 0, 
+                width, 
+                height, 
+                encoding_type: RFBEncodingType::ZRLE, 
+                pixel_data: encoding_zrle::get_pixel_data(ZRLE {
+                    width,
+                    height,
+                    bytes_per_pixel: 32,
+                    framebuffer: pixel_data,
+                })
             });
         }
         _ => {}
