@@ -17,7 +17,7 @@
 */
 
 pub mod encoding_raw;
-pub mod encoding_trle;
+pub mod encoding_zrle;
 
 use crate::x11;
 use crate::win32;

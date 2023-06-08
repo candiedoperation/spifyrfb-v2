@@ -36,6 +36,8 @@ use crate::server::RFBServerInit;
 use crate::server::ServerToClientMessage;
 use crate::server::WindowManager;
 use crate::server::encoding_raw;
+use crate::server::encoding_zrle;
+use crate::server::encoding_zrle::ZRLE;
 
 trait ToU16Vec {
     fn to_u16_vec(input: String) -> Vec<u16>;
@@ -227,6 +229,21 @@ pub fn rectangle_framebuffer_update(
                     height,
                     encoding_type: RFBEncodingType::RAW,
                     pixel_data: encoding_raw::get_pixel_data(pixel_data)
+                });
+            },
+            RFBEncodingType::ZRLE => {
+                frame_buffer.push(FrameBufferRectangle { 
+                    x_position: 0, 
+                    y_position: 0, 
+                    width, 
+                    height, 
+                    encoding_type: RFBEncodingType::ZRLE, 
+                    pixel_data: encoding_zrle::get_pixel_data(ZRLE {
+                        width,
+                        height,
+                        bytes_per_pixel: 32,
+                        framebuffer: pixel_data,
+                    })
                 });
             }
             _ => {}
