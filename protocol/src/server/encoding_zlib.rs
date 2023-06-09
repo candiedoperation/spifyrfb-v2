@@ -32,7 +32,7 @@ pub fn get_pixel_data(pixel_data: Vec<u8>) -> ZlibPixelData {
     let mut next_out: Vec<u8> = vec![0; max_compressed];
 
     unsafe {
-        /* Defined z_stream struct */
+        /* Define z_stream struct */
         let mut zlib_stream = libz_sys::z_stream {
             next_in: next_in.as_mut_ptr(),
             avail_in: next_in.len() as u32,
@@ -53,7 +53,7 @@ pub fn get_pixel_data(pixel_data: Vec<u8>) -> ZlibPixelData {
         /* Call deflateInit2_ */
         let deflate_init_status = libz_sys::deflateInit2_(
             &mut zlib_stream,
-            5, /* Set Compress Level 5 (0-9, None-Max) */
+            6, /* Set Compress Level 5 (0-9, None-Max) */
             libz_sys::Z_DEFLATED,
             15, /* Range: 8-15 (Min-Max Memory) */
             8,
@@ -83,7 +83,7 @@ pub fn get_pixel_data(pixel_data: Vec<u8>) -> ZlibPixelData {
             };
         }
 
-        println!("ZLIB: Compressed: {} bits to {} bits", zlib_stream.total_in, zlib_stream.total_out);        
+        println!("ZLIB: Compressed: {} bits to {} bits", zlib_stream.total_in, zlib_stream.total_out);
         ZlibPixelData { 
             pixel_data_len: zlib_stream.total_out as u32, 
             pixel_data: (&next_out[..zlib_stream.total_out as usize]).to_vec()
