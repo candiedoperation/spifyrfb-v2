@@ -209,7 +209,7 @@ pub fn rectangle_framebuffer_update(
                 width,
                 height,
                 encoding_type: RFBEncodingType::RAW,
-                pixel_data: encoding_raw::get_pixel_data(pixel_data)
+                pixel_data: server::FrameBufferPixelData::RAW(encoding_raw::get_pixel_data(pixel_data))
             });
         },
         RFBEncodingType::ZLIB => {
@@ -219,22 +219,7 @@ pub fn rectangle_framebuffer_update(
                 width,
                 height,
                 encoding_type: RFBEncodingType::ZLIB,
-                pixel_data: encoding_zlib::get_pixel_data(pixel_data)
-            });
-        },
-        RFBEncodingType::ZRLE => {
-            frame_buffer.push(FrameBufferRectangle { 
-                x_position: 0, 
-                y_position: 0, 
-                width, 
-                height, 
-                encoding_type: RFBEncodingType::ZRLE, 
-                pixel_data: encoding_zrle::get_pixel_data(ZRLE {
-                    width,
-                    height,
-                    bytes_per_pixel: 32,
-                    framebuffer: pixel_data,
-                })
+                pixel_data: server::FrameBufferPixelData::ZLIB(encoding_zlib::get_pixel_data(pixel_data))
             });
         }
         _ => {}

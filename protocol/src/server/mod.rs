@@ -94,13 +94,19 @@ impl RFBEncodingType {
 }
 
 #[derive(Debug)]
+pub enum FrameBufferPixelData {
+    RAW(encoding_raw::RawPixelData),
+    ZLIB(encoding_zlib::ZlibPixelData)
+}
+
+#[derive(Debug)]
 pub struct FrameBufferRectangle {
     pub(crate) x_position: u16,
     pub(crate) y_position: u16,
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) encoding_type: i32,
-    pub(crate) pixel_data: Vec<u8>,
+    pub(crate) pixel_data: FrameBufferPixelData,
 }
 
 #[derive(Debug)]
@@ -172,10 +178,26 @@ async fn write_framebuffer_update_message(
             .write_i32(framebuffer.encoding_type)
             .await
             .unwrap_or(());
-        client_tx
-            .write_all(framebuffer.pixel_data.as_slice())
-            .await
-            .unwrap_or(());
+        
+        match framebuffer.pixel_data {
+            FrameBufferPixelData::RAW(raw) => {
+                client_tx
+                .write_all(raw.pixel_data.as_slice())
+                .await
+                .unwrap_or(());
+            },
+            FrameBufferPixelData::ZLIB(zlib) => {
+                client_tx
+                .write_u32(zlib.pixel_data_len)
+                .await
+                .unwrap_or(());
+
+                client_tx
+                .write_all(zlib.pixel_data.as_slice())
+                .await
+                .unwrap_or(());
+            },
+        }
     }
 }
 
