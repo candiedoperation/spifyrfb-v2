@@ -21,7 +21,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::server::{
     self, FrameBufferRectangle, FrameBufferUpdate, PixelFormat, RFBEncodingType, RFBServerInit,
-    ServerToClientMessage, WindowManager, encoding_raw, encoding_zrle::{self, ZRLE}, encoding_zlib, encoding_tight,
+    ServerToClientMessage, WindowManager, encoding_raw, encoding_zrle::{self, ZRLE}, encoding_zlib,
 };
 
 use x11rb::{
@@ -212,6 +212,21 @@ pub fn rectangle_framebuffer_update(
                 pixel_data: server::FrameBufferPixelData::RAW(encoding_raw::get_pixel_data(pixel_data))
             });
         },
+        RFBEncodingType::ZRLE => {
+            frame_buffer.push(FrameBufferRectangle {
+                x_position: x_position.try_into().unwrap(),
+                y_position: y_position.try_into().unwrap(),
+                width,
+                height,
+                encoding_type: RFBEncodingType::ZRLE,
+                pixel_data: server::FrameBufferPixelData::ZLIB(encoding_zrle::get_pixel_data(ZRLE { 
+                    width, 
+                    height, 
+                    bytes_per_pixel: x11_screen.root_depth, 
+                    framebuffer: pixel_data 
+                }))
+            });
+        },
         RFBEncodingType::ZLIB => {
             frame_buffer.push(FrameBufferRectangle {
                 x_position: x_position.try_into().unwrap(),
@@ -220,16 +235,6 @@ pub fn rectangle_framebuffer_update(
                 height,
                 encoding_type: RFBEncodingType::ZLIB,
                 pixel_data: server::FrameBufferPixelData::ZLIB(encoding_zlib::get_pixel_data(pixel_data))
-            });
-        },
-        RFBEncodingType::TIGHT => {
-            frame_buffer.push(FrameBufferRectangle {
-                x_position: x_position.try_into().unwrap(),
-                y_position: y_position.try_into().unwrap(),
-                width,
-                height,
-                encoding_type: RFBEncodingType::TIGHT,
-                pixel_data: server::FrameBufferPixelData::RAW(encoding_tight::get_pixel_data(pixel_data))
             });
         }
         _ => {}

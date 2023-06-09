@@ -1,4 +1,5 @@
-use flate2::{Compression, FlushCompress, Compress};
+use crate::server::encoding_zlib::deflate;
+use super::encoding_zlib::ZlibPixelData;
 
 pub struct ZRLE {
     pub width: u16,
@@ -7,7 +8,7 @@ pub struct ZRLE {
     pub framebuffer: Vec<u8>
 }
 
-pub fn get_pixel_data(pixel_data: ZRLE) -> Vec<u8> {
+pub fn get_pixel_data(pixel_data: ZRLE) -> ZlibPixelData {
     let mut c_pixels: Vec<u8> = vec![];
     for pixel in pixel_data.framebuffer.chunks(4).collect::<Vec<&[u8]>>() {
         /* CPIXELS are only three bytes */
@@ -16,8 +17,7 @@ pub fn get_pixel_data(pixel_data: ZRLE) -> Vec<u8> {
         c_pixels.push(pixel[2]);
     }
 
-    let mut encoded_structure: Vec<u8> = vec![];
-    let encoded_pixels = encode(ZRLE {
+    let encoded_tiles = encode(ZRLE {
         width: if pixel_data.width == 0 { 1 } else { pixel_data.width },
         height: if pixel_data.height == 0 { 1 } else { pixel_data.height },
         bytes_per_pixel: pixel_data.bytes_per_pixel,
@@ -25,13 +25,11 @@ pub fn get_pixel_data(pixel_data: ZRLE) -> Vec<u8> {
     });
     
     /* Add encoded_structure fields */
-    encoded_structure.extend_from_slice(&(encoded_pixels.len() as u32).to_be_bytes());
-    encoded_structure.extend_from_slice(encoded_pixels.as_slice());
-    encoded_structure
+    deflate(encoded_tiles)
 }
 
 fn encode(pixel_data: ZRLE) -> Vec<u8> {
-    let bytes_per_cpixel: u16 = if pixel_data.bytes_per_pixel == 32 { 3 } else { pixel_data.bytes_per_pixel as u16 };
+    let bytes_per_cpixel: u16 = 3;
     const ZRLE_TILE_WIDTH: f32 = 64_f32;
     const ZRLE_TILE_HEIGHT: f32 = 64_f32;
 
@@ -42,7 +40,7 @@ fn encode(pixel_data: ZRLE) -> Vec<u8> {
     let mut zrle_tiles: Vec<Vec<u8>> = vec![Vec::new(); v_tiles * h_tiles];
     let hscan_lines: Vec<&[u8]>;
     hscan_lines = pixel_data.framebuffer.chunks_exact((pixel_data.width * bytes_per_cpixel) as usize).collect();
-
+    
     let mut vertical_tile = 0;
     let mut hscan_line_ctr = 0;
     for hscan_line in hscan_lines {
@@ -61,16 +59,6 @@ fn encode(pixel_data: ZRLE) -> Vec<u8> {
         }
     }
 
-    let flattened_tiles= zrle_tiles.into_iter().flatten().collect::<Vec<u8>>();
-    let mut compressed_tiles: Vec<u8> = Vec::with_capacity(flattened_tiles.len());
-
-    let mut compressor = Compress::new(Compression::new(6), true);
-    compressor.compress_vec(
-        flattened_tiles.as_slice(), 
-        &mut compressed_tiles,
-        FlushCompress::Sync
-    ).unwrap();
-
     /* Send Compressed Tiles */
-    compressed_tiles
+    zrle_tiles.into_iter().flatten().collect::<Vec<u8>>()
 }

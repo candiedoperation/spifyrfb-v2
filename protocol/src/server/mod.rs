@@ -19,7 +19,6 @@
 pub mod encoding_raw;
 pub mod encoding_zrle;
 pub mod encoding_zlib;
-pub mod encoding_tight;
 
 #[cfg(target_os = "windows")]
 use crate::win32;
@@ -99,7 +98,6 @@ impl RFBEncodingType {
 pub enum FrameBufferPixelData {
     RAW(encoding_raw::RawPixelData),
     ZLIB(encoding_zlib::ZlibPixelData),
-    TIGHT(encoding_tight::TightPixelData)
 }
 
 #[derive(Debug)]
@@ -199,28 +197,7 @@ async fn write_framebuffer_update_message(
                 .write_all(zlib.pixel_data.as_slice())
                 .await
                 .unwrap_or(());
-            },
-            FrameBufferPixelData::TIGHT(tight) => {
-                client_tx
-                .write_u8(tight.compression_control)
-                .await
-                .unwrap_or(());
-
-                client_tx
-                .write_u8(tight.compression_method)
-                .await
-                .unwrap_or(());
-
-                client_tx
-                .write_all(tight.pixel_data_len.as_slice())
-                .await
-                .unwrap_or(());
-
-                client_tx
-                .write_all(tight.pixel_data.as_slice())
-                .await
-                .unwrap_or(());
-            },
+            }
         }
     }
 }
@@ -263,7 +240,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_screen.clone(),
-                            RFBEncodingType::RAW,
+                            RFBEncodingType::ZRLE,
                             0,
                             0,
                             x11_screen.width_in_pixels,
@@ -308,7 +285,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_server.displays[0].clone(),
-                            RFBEncodingType::TIGHT,
+                            RFBEncodingType::ZRLE,
                             x_position.try_into().unwrap(),
                             y_position.try_into().unwrap(),
                             width,
