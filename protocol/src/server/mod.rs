@@ -98,7 +98,8 @@ impl RFBEncodingType {
 #[derive(Debug)]
 pub enum FrameBufferPixelData {
     RAW(encoding_raw::RawPixelData),
-    ZLIB(encoding_zlib::ZlibPixelData)
+    ZLIB(encoding_zlib::ZlibPixelData),
+    TIGHT(encoding_tight::TightPixelData)
 }
 
 #[derive(Debug)]
@@ -199,6 +200,27 @@ async fn write_framebuffer_update_message(
                 .await
                 .unwrap_or(());
             },
+            FrameBufferPixelData::TIGHT(tight) => {
+                client_tx
+                .write_u8(tight.compression_control)
+                .await
+                .unwrap_or(());
+
+                client_tx
+                .write_u8(tight.compression_method)
+                .await
+                .unwrap_or(());
+
+                client_tx
+                .write_all(tight.pixel_data_len.as_slice())
+                .await
+                .unwrap_or(());
+
+                client_tx
+                .write_all(tight.pixel_data.as_slice())
+                .await
+                .unwrap_or(());
+            },
         }
     }
 }
@@ -224,7 +246,7 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_monitor.clone(),
-                            RFBEncodingType::ZLIB,
+                            RFBEncodingType::RAW,
                             0,
                             0,
                             (win32_monitor.monitor_rect.right - win32_monitor.monitor_rect.left) as u16,
@@ -270,7 +292,7 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_server.monitors[0].clone(),
-                            RFBEncodingType::ZLIB,
+                            RFBEncodingType::TIGHT,
                             x_position as i16,
                             y_position as i16,
                             width,
