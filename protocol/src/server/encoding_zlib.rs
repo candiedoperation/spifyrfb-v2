@@ -65,7 +65,7 @@ pub fn deflate(pixel_data: Vec<u8>) -> ZlibPixelData {
 
         println!("ZLIB: Compressed: {} bits to {} bits", zlib_stream.total_in, zlib_stream.total_out);
         ZlibPixelData { 
-            pixel_data_len: zlib_stream.total_out as u32, 
+            pixel_data_len: zlib_stream.total_out, 
             pixel_data: (&next_out[..zlib_stream.total_out as usize]).to_vec()
         }
     }

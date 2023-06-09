@@ -26,7 +26,7 @@ use crate::win32;
 #[cfg(target_os = "linux")]
 use crate::x11;
 
-use std::{env, error::Error, sync::Arc};
+use std::{env, error::Error, sync::Arc, thread, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -223,7 +223,7 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_monitor.clone(),
-                            RFBEncodingType::RAW,
+                            RFBEncodingType::ZRLE,
                             0,
                             0,
                             (win32_monitor.monitor_rect.right - win32_monitor.monitor_rect.left) as u16,
@@ -269,7 +269,7 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_server.monitors[0].clone(),
-                            RFBEncodingType::TIGHT,
+                            RFBEncodingType::ZRLE,
                             x_position as i16,
                             y_position as i16,
                             width,
