@@ -1,5 +1,4 @@
 use std::{mem, ptr};
-use flate2::{Compress, Compression, FlushCompress};
 
 #[derive(Debug)]
 pub struct ZlibPixelData {
@@ -7,26 +6,7 @@ pub struct ZlibPixelData {
     pub pixel_data: Vec<u8>
 }
 
-pub fn get_pixel_data(pixel_data: Vec<u8>) -> ZlibPixelData {
-    /* let mut encoded_pixels: Vec<u8> = Vec::with_capacity(pixel_data.len());
-    let mut compressor = Compress::new(Compression::new(5), true);
-    compressor.compress_vec(
-        pixel_data.as_slice(),
-        &mut encoded_pixels,
-        FlushCompress::Sync
-    ).unwrap();
-
-    compressor.reset();
-
-    return ZlibPixelData { 
-        pixel_data_len: encoded_pixels.len() as u32, 
-        pixel_data: encoded_pixels
-    }; */
-
-    /*encoded_structure.extend_from_slice(&(encoded_pixels.len() as u32).to_be_bytes());
-    encoded_structure.extend_from_slice(encoded_pixels.as_slice());
-    encoded_structure*/
-
+pub fn deflate(pixel_data: Vec<u8>) -> ZlibPixelData {
     let max_compressed = pixel_data.len() + ((pixel_data.len() + 99) / 100) + 12;
     let mut next_in: Vec<u8> = pixel_data.clone();
     let mut next_out: Vec<u8> = vec![0; max_compressed];
@@ -89,4 +69,8 @@ pub fn get_pixel_data(pixel_data: Vec<u8>) -> ZlibPixelData {
             pixel_data: (&next_out[..zlib_stream.total_out as usize]).to_vec()
         }
     }
+}
+
+pub fn get_pixel_data(pixel_data: Vec<u8>) -> ZlibPixelData {
+    deflate(pixel_data)
 }

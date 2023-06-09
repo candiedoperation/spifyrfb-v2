@@ -68,7 +68,7 @@ fn encode(pixel_data: ZRLE) -> Vec<u8> {
     compressor.compress_vec(
         flattened_tiles.as_slice(), 
         &mut compressed_tiles,
-        FlushCompress::None
+        FlushCompress::Sync
     ).unwrap();
 
     /* Send Compressed Tiles */

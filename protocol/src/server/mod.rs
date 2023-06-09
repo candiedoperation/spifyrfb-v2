@@ -19,6 +19,7 @@
 pub mod encoding_raw;
 pub mod encoding_zrle;
 pub mod encoding_zlib;
+pub mod encoding_tight;
 
 #[cfg(target_os = "windows")]
 use crate::win32;
@@ -89,6 +90,7 @@ impl RFBEncodingType {
     pub const RRE: i32 = 2;
     pub const HEX_TILE: i32 = 5;
     pub const ZLIB: i32 = 6;
+    pub const TIGHT: i32 = 7;
     pub const TRLE: i32 = 15;
     pub const ZRLE: i32 = 16;
 }
@@ -284,7 +286,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_server.displays[0].clone(),
-                            RFBEncodingType::ZLIB,
+                            RFBEncodingType::TIGHT,
                             x_position.try_into().unwrap(),
                             y_position.try_into().unwrap(),
                             width,
