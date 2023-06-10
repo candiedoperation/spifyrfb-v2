@@ -233,11 +233,12 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_monitor.clone(),
-                            RFBEncodingType::ZLIB,
+                            RFBEncodingType::RAW,
                             0,
                             0,
                             (win32_monitor.monitor_rect.right - win32_monitor.monitor_rect.left) as u16,
-                            (win32_monitor.monitor_rect.bottom - win32_monitor.monitor_rect.top) as u16
+                            (win32_monitor.monitor_rect.bottom - win32_monitor.monitor_rect.top) as u16,
+                            client_tx.peer_addr().unwrap().to_string()
                         ),
                     )
                     .await;
@@ -280,11 +281,12 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_server.monitors[0].clone(),
-                            RFBEncodingType::ZLIB,
+                            RFBEncodingType::ZRLE,
                             x_position as i16,
                             y_position as i16,
                             width,
-                            height
+                            height,
+                            client_tx.peer_addr().unwrap().to_string()
                         ),
                     )
                     .await;
@@ -721,7 +723,12 @@ pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
                                 let (client, _) = listener.accept().await?;
                                 let wm = Arc::clone(&wm_arc);
                                 tokio::spawn(async move {
-                                    // Handle The Client
+                                    /* Handle The Client */
+                                    session::new(client.peer_addr().unwrap().to_string(), SpifySession {
+                                        zlib_stream: encoding_zlib::create_zlib_stream()
+                                    });
+
+                                    /* Init Handshake */
                                     println!("Connection Established: {:?}", client);
                                     init_handshake(client, wm).await;
                                 });

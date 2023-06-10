@@ -187,7 +187,8 @@ pub fn rectangle_framebuffer_update(
     x_position: i16,
     y_position: i16,
     width: u16,
-    height: u16
+    height: u16,
+    session: String
 ) -> FrameBufferUpdate {
     unsafe {
         let compatible_bitmap = Win32_Gdi::CreateCompatibleBitmap(win32_server.capture_driver.desktop_dc, width as i32, height as i32);
@@ -254,7 +255,7 @@ pub fn rectangle_framebuffer_update(
                     width, 
                     height, 
                     encoding_type: RFBEncodingType::ZLIB, 
-                    pixel_data: FrameBufferPixelData::ZLIB(encoding_zlib::get_pixel_data(pixel_data))
+                    pixel_data: FrameBufferPixelData::ZLIB(encoding_zlib::get_pixel_data(pixel_data, session))
                 });
             },
             RFBEncodingType::ZRLE => {
@@ -268,7 +269,8 @@ pub fn rectangle_framebuffer_update(
                         width, 
                         height, 
                         bytes_per_pixel: (WIN32_BITS_PER_PIXEL / 8), 
-                        framebuffer: pixel_data 
+                        framebuffer: pixel_data,
+                        session,
                     }))
                 });
             },
