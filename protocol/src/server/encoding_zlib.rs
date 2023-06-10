@@ -1,7 +1,4 @@
-use std::{mem, ptr, sync::RwLock};
-
-use once_cell::unsync::Lazy;
-
+use std::{mem, ptr};
 use super::session;
 
 #[derive(Debug)]
@@ -9,27 +6,6 @@ pub struct ZlibPixelData {
     pub pixel_data_len: u32,
     pub pixel_data: Vec<u8>
 }
-
-/*static mut ZLIB_STREAM: Lazy<RwLock<libz_sys::z_stream>> = Lazy::new(|| unsafe {
-    RwLock::new(
-        libz_sys::z_stream {
-            next_in: ptr::null_mut(),
-            avail_in: 0,
-            total_in: 0,
-            next_out: ptr::null_mut(),
-            avail_out: 0,
-            total_out: 0,
-            msg: ptr::null::<u8>() as _,
-            state: ptr::null::<u8>() as _,
-            zalloc: mem::transmute(ptr::null::<u8>()),
-            zfree: mem::transmute(ptr::null::<u8>()),
-            opaque: ptr::null::<u8>() as _,
-            data_type: libz_sys::Z_BINARY,
-            adler: 0,
-            reserved: 0,
-        }
-    )
-});*/
 
 pub fn create_zlib_stream() -> libz_sys::z_stream {
     libz_sys::z_stream {
@@ -56,25 +32,6 @@ pub fn deflate(pixel_data: Vec<u8>, session: String) -> ZlibPixelData {
     let mut next_out: Vec<u8> = vec![0; max_compressed];
 
     unsafe {
-        /* Define z_stream struct */
-        /*let mut zlib_stream = libz_sys::z_stream {
-            next_in: next_in.as_mut_ptr(),
-            avail_in: next_in.len() as u32,
-            total_in: 0,
-            next_out: next_out.as_mut_ptr(),
-            avail_out: max_compressed as u32,
-            total_out: 0,
-            msg: ptr::null::<u8>() as _,
-            state: ptr::null::<u8>() as _,
-            zalloc: mem::transmute(ptr::null::<u8>()),
-            zfree: mem::transmute(ptr::null::<u8>()),
-            opaque: ptr::null::<u8>() as _,
-            data_type: libz_sys::Z_BINARY,
-            adler: 0,
-            reserved: 0,
-        };*/
-
-        //let mut zlib_stream = ZLIB_STREAM.write().unwrap();
         let mut zlib_stream = session::get_zlib_stream(session.clone());
         zlib_stream.next_in = next_in.as_mut_ptr();
         zlib_stream.avail_in = next_in.len() as u32;

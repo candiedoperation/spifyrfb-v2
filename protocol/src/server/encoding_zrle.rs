@@ -1,5 +1,5 @@
 use crate::server::encoding_zlib::deflate;
-use super::{encoding_zlib::ZlibPixelData, session};
+use super::{encoding_zlib::ZlibPixelData};
 
 pub struct ZRLE {
     pub width: u16,
