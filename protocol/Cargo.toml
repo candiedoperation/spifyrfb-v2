@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 tokio = { workspace = true }
 x11rb = { workspace = true }
-flate2 = { workspace = true }
 windows = { workspace = true }
 libz-sys = { workspace = true }
 once_cell = { workspace = true }
