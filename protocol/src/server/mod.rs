@@ -20,7 +20,9 @@ pub mod encoding_raw;
 pub mod encoding_zrle;
 pub mod encoding_zlib;
 pub mod encoding_hextile;
+pub mod session;
 
+use crate::server::session::SpifySession;
 #[cfg(target_os = "windows")]
 use crate::win32;
 
@@ -253,6 +255,7 @@ async fn process_clientserver_message(
                             0,
                             x11_screen.width_in_pixels,
                             x11_screen.height_in_pixels,
+                            client_tx.peer_addr().unwrap().to_string()
                         ),
                     )
                     .await;
@@ -293,11 +296,12 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_server.displays[0].clone(),
-                            RFBEncodingType::ZLIB,
+                            RFBEncodingType::ZRLE,
                             x_position.try_into().unwrap(),
                             y_position.try_into().unwrap(),
                             width,
                             height,
+                            client_tx.peer_addr().unwrap().to_string()
                         ),
                     )
                     .await;
@@ -684,6 +688,11 @@ pub async fn create(ip_address: String) -> Result<(), Box<dyn Error>> {
                                 let wm = Arc::clone(&wm_arc);
                                 tokio::spawn(async move {
                                     // Handle The Client
+                                    session::new(client.peer_addr().unwrap().to_string(), SpifySession {
+                                        zlib_stream: encoding_zlib::create_zlib_stream()
+                                    });
+                                    
+                                    /* Init Handshake */
                                     println!("Connection Established: {:?}", client);
                                     init_handshake(client, wm).await;
                                 });

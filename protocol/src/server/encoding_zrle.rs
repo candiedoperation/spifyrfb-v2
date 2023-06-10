@@ -1,11 +1,12 @@
 use crate::server::encoding_zlib::deflate;
-use super::encoding_zlib::ZlibPixelData;
+use super::{encoding_zlib::ZlibPixelData, session};
 
 pub struct ZRLE {
     pub width: u16,
     pub height: u16,
     pub bytes_per_pixel: u8,
-    pub framebuffer: Vec<u8>
+    pub framebuffer: Vec<u8>,
+    pub session: String
 }
 
 pub fn get_pixel_data(pixel_data: ZRLE) -> ZlibPixelData {
@@ -22,10 +23,11 @@ pub fn get_pixel_data(pixel_data: ZRLE) -> ZlibPixelData {
         height: if pixel_data.height == 0 { 1 } else { pixel_data.height },
         bytes_per_pixel: pixel_data.bytes_per_pixel,
         framebuffer: c_pixels,
+        session: pixel_data.session.clone()
     });
     
     /* Add encoded_structure fields */
-    deflate(encoded_tiles)
+    deflate(encoded_tiles, pixel_data.session)
 }
 
 fn encode(pixel_data: ZRLE) -> Vec<u8> {

@@ -175,6 +175,7 @@ pub fn rectangle_framebuffer_update(
     y_position: i16,
     width: u16,
     height: u16,
+    session: String
 ) -> FrameBufferUpdate {
     let x11_cookie = xproto::get_image(
         &x11_server.connection,
@@ -223,7 +224,8 @@ pub fn rectangle_framebuffer_update(
                     width, 
                     height, 
                     bytes_per_pixel: x11_screen.root_depth, 
-                    framebuffer: pixel_data 
+                    framebuffer: pixel_data,
+                    session
                 }))
             });
         },
@@ -234,7 +236,7 @@ pub fn rectangle_framebuffer_update(
                 width,
                 height,
                 encoding_type: RFBEncodingType::ZLIB,
-                pixel_data: server::FrameBufferPixelData::ZLIB(encoding_zlib::get_pixel_data(pixel_data))
+                pixel_data: server::FrameBufferPixelData::ZLIB(encoding_zlib::get_pixel_data(pixel_data, session))
             });
         },
         RFBEncodingType::HEX_TILE => {
