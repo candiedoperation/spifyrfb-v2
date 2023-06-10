@@ -33,7 +33,7 @@ pub fn deflate(pixel_data: Vec<u8>) -> ZlibPixelData {
         /* Call deflateInit2_ */
         let deflate_init_status = libz_sys::deflateInit2_(
             &mut zlib_stream,
-            6, /* Set Compress Level 5 (0-9, None-Max) */
+            6, /* Set Compress Level 6 (0-9, None-Max) */
             libz_sys::Z_DEFLATED,
             15, /* Range: 8-15 (Min-Max Memory) */
             8,

@@ -44,7 +44,7 @@ fn encode(pixel_data: ZRLE) -> Vec<u8> {
     let mut vertical_tile = 0;
     let mut hscan_line_ctr = 0;
     for hscan_line in hscan_lines {
-        let mut current_tile = vertical_tile * (h_tiles - 1);
+        let mut current_tile = vertical_tile * (h_tiles);
         for h_chunk in hscan_line.chunks((64 * bytes_per_cpixel) as usize).collect::<Vec<_>>() {
             if hscan_line_ctr == 0 { zrle_tiles[current_tile].push(0_u8); }
             zrle_tiles[current_tile].extend_from_slice(h_chunk);
