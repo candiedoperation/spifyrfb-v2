@@ -36,6 +36,8 @@ use crate::server::RFBEncodingType;
 use crate::server::RFBServerInit;
 use crate::server::ServerToClientMessage;
 use crate::server::WindowManager;
+use crate::server::encoding_hextile;
+use crate::server::encoding_hextile::Hextile;
 use crate::server::encoding_raw;
 use crate::server::encoding_zlib;
 use crate::server::encoding_zrle;
@@ -77,6 +79,18 @@ pub struct Win32PointerEvent {
     pub(crate) dst_y: i16,
     pub(crate) button_mask: u8,
 }
+
+/*
+    Note: Apps that you design to target Windows 8 and later can no longer 
+    query or set display modes that are less than WIN32_BITS_PER_PIXEL bits per pixel (bpp); 
+    these operations will fail. These apps have a compatibility manifest that 
+    targets Windows 8. Windows 8 still supports 8-bit and 16-bit color modes 
+    for desktop apps that were built without a Windows 8 manifest; Windows 8 
+    emulates these modes but still runs in WIN32_BITS_PER_PIXEL-bit color mode.
+*/
+
+/* Define BPP Constant */
+const WIN32_BITS_PER_PIXEL: u8 = 32;
 
 pub fn fire_key_event(
     win32_server: &Win32Server,
@@ -199,7 +213,7 @@ pub fn rectangle_framebuffer_update(
                 biWidth: width as i32, 
                 biHeight: height as i32 * -1,
                 biPlanes: 1, /* MUST BE SET TO ONE */ 
-                biBitCount: 32,
+                biBitCount: WIN32_BITS_PER_PIXEL as u16,
                 biCompression: 0,
                 ..Default::default()
                 
@@ -253,8 +267,23 @@ pub fn rectangle_framebuffer_update(
                     pixel_data: server::FrameBufferPixelData::ZLIB(encoding_zrle::get_pixel_data(ZRLE { 
                         width, 
                         height, 
-                        bytes_per_pixel: 32, 
+                        bytes_per_pixel: (WIN32_BITS_PER_PIXEL / 8), 
                         framebuffer: pixel_data 
+                    }))
+                });
+            },
+            RFBEncodingType::HEX_TILE => {
+                frame_buffer.push(FrameBufferRectangle {
+                    x_position: x_position as u16,
+                    y_position: y_position as u16,
+                    width,
+                    height,
+                    encoding_type: RFBEncodingType::HEX_TILE,
+                    pixel_data: server::FrameBufferPixelData::VEC8(encoding_hextile::get_pixel_data(Hextile {
+                        width,
+                        height,
+                        bits_per_pixel: WIN32_BITS_PER_PIXEL,
+                        framebuffer: pixel_data,
                     }))
                 });
             }
@@ -277,17 +306,8 @@ pub fn get_display_struct(win32_monitor: Win32Monitor) -> server::RFBServerInit 
         let valid_hostname = hostname.iter().position(|&c| c as u8 == b'\0' ).unwrap_or(hostname.len());
         let valid_hostname: String = String::from_utf16_lossy(&hostname[0..valid_hostname]);
 
-        /*
-            Note: Apps that you design to target Windows 8 and later can no longer 
-            query or set display modes that are less than 32 bits per pixel (bpp); 
-            these operations will fail. These apps have a compatibility manifest that 
-            targets Windows 8. Windows 8 still supports 8-bit and 16-bit color modes 
-            for desktop apps that were built without a Windows 8 manifest; Windows 8 
-            emulates these modes but still runs in 32-bit color mode.
-        */
-
         let pixel_format = PixelFormat {
-            bits_per_pixel: 32,
+            bits_per_pixel: WIN32_BITS_PER_PIXEL,
             depth: 24, /* WINDOWS EMULATES FOR TRUE-COLOR */
             big_endian_flag: 0,
             true_color_flag: 1,

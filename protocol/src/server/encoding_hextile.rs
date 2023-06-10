@@ -6,12 +6,11 @@ pub struct Hextile {
 }
 
 pub fn get_pixel_data(pixel_data: Hextile) -> Vec<u8> {
-    encode(Hextile {
-        width: if pixel_data.width == 0 { 1 } else { pixel_data.width },
-        height: if pixel_data.height == 0 { 1 } else { pixel_data.height },
-        bits_per_pixel: pixel_data.bits_per_pixel,
-        framebuffer: pixel_data.framebuffer,
-    })
+    if pixel_data.width > 0 && pixel_data.height > 0 {
+        encode(pixel_data)
+    } else {
+        Vec::with_capacity(1)
+    }
 }
 
 fn encode(pixel_data: Hextile) -> Vec<u8> {
