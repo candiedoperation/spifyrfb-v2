@@ -27,7 +27,7 @@ use crate::win32;
 #[cfg(target_os = "linux")]
 use crate::x11;
 
-use std::{env, error::Error, sync::Arc, thread, time::Duration};
+use std::{env, error::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
