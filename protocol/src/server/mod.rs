@@ -248,7 +248,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_screen.clone(),
-                            RFBEncodingType::HEX_TILE,
+                            RFBEncodingType::RAW,
                             0,
                             0,
                             x11_screen.width_in_pixels,
@@ -293,7 +293,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_server.displays[0].clone(),
-                            RFBEncodingType::HEX_TILE,
+                            RFBEncodingType::ZLIB,
                             x_position.try_into().unwrap(),
                             y_position.try_into().unwrap(),
                             width,
