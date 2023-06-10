@@ -82,11 +82,11 @@ pub struct Win32PointerEvent {
 
 /*
     Note: Apps that you design to target Windows 8 and later can no longer 
-    query or set display modes that are less than WIN32_BITS_PER_PIXEL bits per pixel (bpp); 
+    query or set display modes that are less than 32 bits per pixel (bpp); 
     these operations will fail. These apps have a compatibility manifest that 
     targets Windows 8. Windows 8 still supports 8-bit and 16-bit color modes 
     for desktop apps that were built without a Windows 8 manifest; Windows 8 
-    emulates these modes but still runs in WIN32_BITS_PER_PIXEL-bit color mode.
+    emulates these modes but still runs in 32-bit color mode.
 */
 
 /* Define BPP Constant */
