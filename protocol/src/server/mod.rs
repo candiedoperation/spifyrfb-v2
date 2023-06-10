@@ -231,7 +231,7 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_monitor.clone(),
-                            RFBEncodingType::RAW,
+                            RFBEncodingType::ZLIB,
                             0,
                             0,
                             (win32_monitor.monitor_rect.right - win32_monitor.monitor_rect.left) as u16,
@@ -277,7 +277,7 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_server.monitors[0].clone(),
-                            RFBEncodingType::HEX_TILE,
+                            RFBEncodingType::ZLIB,
                             x_position as i16,
                             y_position as i16,
                             width,

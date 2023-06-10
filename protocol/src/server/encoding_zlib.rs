@@ -60,6 +60,9 @@ pub fn deflate(pixel_data: Vec<u8>) -> ZlibPixelData {
         zlib_stream.avail_out = max_compressed as u32;
 
         if zlib_stream.total_in == 0 {
+            /* Init ZLIB Stream */
+            println!("Initializing Zlib Stream");
+
             /* Call deflateInit2_ */
             let deflate_init_status = libz_sys::deflateInit2_(
                 &mut *zlib_stream,
