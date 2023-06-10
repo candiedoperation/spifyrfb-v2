@@ -23,7 +23,7 @@ A Modern RFB Server implementation using Rust, written from scratch.
 | Raw      | 1      |        ✅     |
 | CopyRect | 2      |              |
 | RRE      | 3      |              |
-| Hextile  | 5      |              |
+| Hextile  | 5      |        ✅      |
 | TRLE     | 15     |              | 
 | ZRLE     | 16     |              |
 
