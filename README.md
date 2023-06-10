@@ -24,8 +24,9 @@ A Modern RFB Server implementation using Rust, written from scratch.
 | CopyRect | 2      |              |
 | RRE      | 3      |              |
 | Hextile  | 5      |        ✅      |
+| ZLIB     | 6      |        ✅      |
 | TRLE     | 15     |              | 
-| ZRLE     | 16     |              |
+| ZRLE     | 16     |        ✅      |
 
 
 ### Transports
