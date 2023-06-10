@@ -52,15 +52,25 @@ fn encode(pixel_data: Hextile) -> Vec<u8> {
     }
 
     let mut compressed_hextiles: Vec<u8> = Vec::with_capacity(hextiles.capacity());
+    let mut solid_previous_tile: (bool, Vec<u8>) = (false, Vec::with_capacity(1));
+
     for hextile in hextiles {
         let solid_hextile = solid_hextile_color(hextile.clone());
         if solid_hextile.0 == true {
-            compressed_hextiles.push(2_u8);
-            compressed_hextiles.extend_from_slice(solid_hextile.1.as_slice());
+            if solid_hextile.1 != solid_previous_tile.1 {
+                compressed_hextiles.push(2_u8);
+                compressed_hextiles.extend_from_slice(solid_hextile.1.as_slice());
+            } else {
+                /* Set No bits, color same as previous tile */
+                compressed_hextiles.push(0_u8);
+            }
         } else {
             compressed_hextiles.push(1_u8);
             compressed_hextiles.extend_from_slice(hextile.as_slice());
         }
+
+        /* Update Previous Hextile (for Solid Color) */
+        solid_previous_tile = solid_hextile.clone();
     }
 
     /* Send Compressed Tiles */
