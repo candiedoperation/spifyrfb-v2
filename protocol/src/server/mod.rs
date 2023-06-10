@@ -19,6 +19,7 @@
 pub mod encoding_raw;
 pub mod encoding_zrle;
 pub mod encoding_zlib;
+pub mod encoding_hextile;
 
 #[cfg(target_os = "windows")]
 use crate::win32;
@@ -98,6 +99,7 @@ impl RFBEncodingType {
 pub enum FrameBufferPixelData {
     RAW(encoding_raw::RawPixelData),
     ZLIB(encoding_zlib::ZlibPixelData),
+    VEC8(Vec<u8>)
 }
 
 #[derive(Debug)]
@@ -198,6 +200,12 @@ async fn write_framebuffer_update_message(
                 .await
                 .unwrap_or(());
             }
+            FrameBufferPixelData::VEC8(vec8) => {
+                client_tx
+                .write_all(vec8.as_slice())
+                .await
+                .unwrap_or(());
+            },
         }
     }
 }
@@ -240,7 +248,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_screen.clone(),
-                            RFBEncodingType::ZRLE,
+                            RFBEncodingType::HEX_TILE,
                             0,
                             0,
                             x11_screen.width_in_pixels,
@@ -285,7 +293,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_server.displays[0].clone(),
-                            RFBEncodingType::ZRLE,
+                            RFBEncodingType::HEX_TILE,
                             x_position.try_into().unwrap(),
                             y_position.try_into().unwrap(),
                             width,
