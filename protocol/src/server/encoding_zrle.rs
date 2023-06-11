@@ -65,7 +65,7 @@ fn encode(pixel_data: ZRLE) -> Vec<u8> {
 
     let mut compressed_zrletiles: Vec<u8> = Vec::with_capacity(zrle_tiles.capacity());
     for zrle_tile in zrle_tiles {
-        let solid_zrletile = solid_zrletile_color(zrle_tile.clone());
+        let solid_zrletile = solid_zrletile_color(zrle_tile.clone(), bytes_per_cpixel as usize);
         if solid_zrletile.0 == true {
             compressed_zrletiles.push(1_u8);
             compressed_zrletiles.extend_from_slice(solid_zrletile.1.as_slice());
@@ -79,8 +79,8 @@ fn encode(pixel_data: ZRLE) -> Vec<u8> {
     compressed_zrletiles
 }
 
-fn solid_zrletile_color(tile: Vec<u8>) -> (bool, Vec<u8>) {
-    let tile_chunks: Vec<&[u8]> = tile.chunks(4).collect();
+fn solid_zrletile_color(tile: Vec<u8>, bytes_per_pixel: usize) -> (bool, Vec<u8>) {
+    let tile_chunks: Vec<&[u8]> = tile.chunks(bytes_per_pixel).collect();
     let initial_color = tile_chunks[0];
     let mut solid_color: bool = true;
 

@@ -251,7 +251,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_screen.clone(),
-                            RFBEncodingType::RAW,
+                            RFBEncodingType::ZRLE,
                             0,
                             0,
                             x11_screen.width_in_pixels,

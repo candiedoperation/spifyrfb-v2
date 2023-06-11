@@ -70,7 +70,7 @@ pub fn fire_key_event(x11_server: &X11Server, x11_screen: Screen, x11_keyevent: 
         } else {
             xproto::KEY_PRESS_EVENT
         },
-        *x11_server.keysym_map.get(&x11_keyevent.key_sym).unwrap(),
+        *x11_server.keysym_map.get(&x11_keyevent.key_sym).unwrap_or(&0),
         x11rb::CURRENT_TIME,
         x11_screen.root,
         0,
@@ -140,7 +140,7 @@ pub fn get_display_struct(x11_server: &X11Server, x11_screen: Screen) -> server:
                 x11_screen.root_depth
             }, /* ADD ALPHA-CHANNEL IF TRUE-COLOR */
             depth: x11_screen.root_depth,
-            big_endian_flag: 0,
+            big_endian_flag: 1,
             true_color_flag: (x11_screen.root_depth == 24).into(),
             red_max: if x11_screen.root_depth == 24 {
                 2_u16.pow(8) - 1

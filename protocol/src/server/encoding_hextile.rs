@@ -54,7 +54,7 @@ fn encode(pixel_data: Hextile) -> Vec<u8> {
     let mut solid_previous_tile: (bool, Vec<u8>) = (false, Vec::with_capacity(1));
 
     for hextile in hextiles {
-        let solid_hextile = solid_hextile_color(hextile.clone());
+        let solid_hextile = solid_hextile_color(hextile.clone(), bytes_per_pixel as usize);
         if solid_hextile.0 == true {
             if solid_hextile.1 != solid_previous_tile.1 {
                 compressed_hextiles.push(2_u8);
@@ -76,8 +76,8 @@ fn encode(pixel_data: Hextile) -> Vec<u8> {
     compressed_hextiles
 }
 
-fn solid_hextile_color(tile: Vec<u8>) -> (bool, Vec<u8>) {
-    let tile_chunks: Vec<&[u8]> = tile.chunks(4).collect();
+fn solid_hextile_color(tile: Vec<u8>, bytes_per_pixel: usize) -> (bool, Vec<u8>) {
+    let tile_chunks: Vec<&[u8]> = tile.chunks(bytes_per_pixel).collect();
     let initial_color = tile_chunks[0];
     let mut solid_color: bool = true;
 
