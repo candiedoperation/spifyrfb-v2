@@ -26,13 +26,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Version: {}, OS: {}", info::srv_version(), env::consts::OS);
 
     let mut launch_ip: String = String::from("");
+    let mut websocket_ip: String = String::from("");
+
     for arg in env::args_os() {
         if arg.to_string_lossy().starts_with("--ip=") {
             launch_ip = String::from(arg.to_string_lossy().replace("--ip=", "").trim());
+        } else if arg.to_string_lossy().starts_with("--ws=") {
+            websocket_ip = String::from(arg.to_string_lossy().replace("--ws=", "").trim());
         }
     }
 
     /* CREATE PROTOCOL SERVER WITH LAUNCH IP */
-    spifyrfb_protocol::server::create(launch_ip).await.unwrap_or({});
+    spifyrfb_protocol::server::create(
+        launch_ip,
+        if websocket_ip == "" { Option::None } else { Option::Some(websocket_ip) }
+    ).await.unwrap_or({});
+    
     Ok(())
 }

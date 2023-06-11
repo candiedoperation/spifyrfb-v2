@@ -25,6 +25,13 @@ pub fn get(peer_address: String) -> SpifySession {
     }
 }
 
+pub fn destroy(peer_address: String) {
+    unsafe {
+        let mut session_lock = ACTIVE_SESSIONS.write().unwrap();
+        session_lock.remove(&peer_address);
+    }
+}
+
 pub fn get_zlib_stream(peer_address: String) -> libz_sys::z_stream {
     unsafe {
         let session_lock = ACTIVE_SESSIONS.read().unwrap();
