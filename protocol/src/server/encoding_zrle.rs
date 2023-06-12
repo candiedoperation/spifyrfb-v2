@@ -35,7 +35,7 @@ pub fn get_pixel_data(framebuffer: FrameBuffer, session: String) -> FrameBufferR
             ..framebuffer.clone()
         });
     } else {
-        encoded_tiles = Vec::with_capacity(1);
+        encoded_tiles = framebuffer.raw_pixels.clone();
     }
     
     /* Add encoded_structure fields */

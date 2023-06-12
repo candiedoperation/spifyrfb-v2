@@ -28,7 +28,7 @@ use windows::Win32::UI::WindowsAndMessaging as Win32_WindowsAndMessaging;
 use windows::Win32::UI::Input::KeyboardAndMouse as Win32_KeyboardAndMouse;
 
 use crate::server;
-use crate::server::FrameBufferPixelData;
+use crate::server::FrameBuffer;
 use crate::server::FrameBufferRectangle;
 use crate::server::FrameBufferUpdate;
 use crate::server::PixelFormat;
@@ -37,11 +37,9 @@ use crate::server::RFBServerInit;
 use crate::server::ServerToClientMessage;
 use crate::server::WindowManager;
 use crate::server::encoding_hextile;
-use crate::server::encoding_hextile::Hextile;
 use crate::server::encoding_raw;
 use crate::server::encoding_zlib;
 use crate::server::encoding_zrle;
-use crate::server::encoding_zrle::ZRLE;
 
 trait ToU16Vec {
     fn to_u16_vec(input: String) -> Vec<u16>;
@@ -236,7 +234,7 @@ pub fn rectangle_framebuffer_update(
         /* DESTROY BITMAP AFTER SAVE, DEALLOC OBJECTS ON CLOSE */
         Win32_Gdi::DeleteObject(compatible_bitmap);
 
-        let mut frame_buffer: Vec<FrameBufferRectangle> = vec![];
+        let mut framebuffer_rectangles: Vec<FrameBufferRectangle> = vec![];
         let mut framebuffer_struct = FrameBuffer {
             x_position: x_position as u16,
             y_position: y_position as u16,
@@ -272,7 +270,7 @@ pub fn rectangle_framebuffer_update(
             message_type: ServerToClientMessage::FRAME_BUFFER_UPDATE,
             padding: 0,
             number_of_rectangles: 1,
-            frame_buffer,
+            frame_buffer: framebuffer_rectangles,
         }
     }
 }
@@ -287,7 +285,7 @@ pub fn get_display_struct(win32_monitor: Win32Monitor) -> server::RFBServerInit 
         let pixel_format = PixelFormat {
             bits_per_pixel: WIN32_BITS_PER_PIXEL,
             depth: 24, /* WINDOWS EMULATES FOR TRUE-COLOR */
-            big_endian_flag: 0,
+            big_endian_flag: 1,
             true_color_flag: 1,
             red_max: 2_u16.pow(8) - 1,
             green_max: 2_u16.pow(8) - 1,

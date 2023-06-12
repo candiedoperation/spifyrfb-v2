@@ -291,11 +291,14 @@ async fn handle_wsclient(mut ws_stream: WebsocketStream, proxy_address: String) 
     let handshake_request: Vec<&str> = handshake_request.split("\r\n").collect();
 
     /* Debugging */
-    println!("Request: {:?}", handshake_request);
+    debug::l1(format!("Request: {:?}", handshake_request));
 
     let handshake_request_version = parser::http::get_version(handshake_request.clone());
     let handshake_request_method = parser::http::get_method(handshake_request.clone());
-    if handshake_request_version == "HTTP/1.1" && handshake_request_method == "GET" {
+    let handshake_websocket_version: u8 = parser::http::get_websocket_version(handshake_request.clone());
+    let valid_websocket_version = handshake_websocket_version == 13; /* Use Array in Future Impl. */
+
+    if handshake_request_version == "HTTP/1.1" && handshake_request_method == "GET" && valid_websocket_version == true {
         /* This is a valid Websocket Handshake Request, Check WS Version Support */
         let websocket_key = parser::http::get_websocket_key(handshake_request.clone());
         let websocket_accept_key = parser::websocket::get_accept_key(websocket_key);
@@ -317,7 +320,39 @@ async fn handle_wsclient(mut ws_stream: WebsocketStream, proxy_address: String) 
         /* Handshake Response Sent, Proceed Further */
         proxy_websocket(ws_stream, proxy_address).await;
     } else {
-        /* Send 400 (Bad Request) */
+        if handshake_websocket_version == 0 {
+            /* This is not a Websocket Upgrade Request: See parser.rs */
+            let response_message = "<h1>SpifyRFB Websocket Service</h1><p>Apps like noVNC can interpret this page</p> ";
+            let handshake_response = parser::http::response_from_headers(
+                [
+                    "HTTP/1.1 200 OK",
+                    format!("Content-length: {}", response_message.as_bytes().len()).as_str(),
+                    "Content-type: text/html",
+                    "\n",
+                    response_message
+                ]
+                .to_vec(),
+            );
+    
+            /* Send Response and Complete Handshake */
+            ws_stream.write_all(handshake_response.as_bytes()).await.unwrap();
+        } else {
+            /* Send 400 (Bad Request) */
+            let response_message = "Websocket/HTTP Versions Unsupported";
+            let handshake_response = parser::http::response_from_headers(
+                [
+                    "HTTP/1.1 400 Bad Request",
+                    format!("Content-length: {}", response_message.as_bytes().len()).as_str(),
+                    "Content-type: text/plain",
+                    "\n",
+                    response_message
+                ]
+                .to_vec(),
+            );
+    
+            /* Send Response and Complete Handshake */
+            ws_stream.write_all(handshake_response.as_bytes()).await.unwrap();
+        }
     }
 }
 

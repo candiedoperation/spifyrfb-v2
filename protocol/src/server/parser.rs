@@ -177,6 +177,21 @@ pub mod http {
         http_method
     }
 
+    pub fn get_websocket_version(http_request: Vec<&str>) -> u8 {
+        let mut websocket_version: String = String::from("");
+        for header in http_request {
+            let key_identifier = "Sec-WebSocket-Version: ";
+            let key_index = header.find(key_identifier);
+
+            if key_index.is_some() {
+                websocket_version = header[key_identifier.len()..].to_string();
+                break;
+            }
+        }
+
+        websocket_version.parse().unwrap_or(0)
+    }
+
     pub fn get_websocket_key(http_request: Vec<&str>) -> String {
         let mut websocket_key: String = String::from("");
         for header in http_request {

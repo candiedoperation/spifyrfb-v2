@@ -24,12 +24,13 @@ pub mod session;
 pub mod websocket;
 pub mod parser;
 
-use crate::{server::session::SpifySession, debug};
+use crate::{server::session::SpifySession};
+
 #[cfg(target_os = "windows")]
 use crate::win32;
 
 #[cfg(target_os = "linux")]
-use crate::x11;
+use crate::{x11, debug};
 
 use std::{error::Error, sync::Arc};
 use tokio::{
@@ -699,42 +700,49 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
 pub async fn create(tcp_address: String, ws_proxy: Option<(String, bool)>) -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "windows")]
     {
-        match win32::connect() {
-            Ok(wm_arc) => {
-                match TcpListener::bind(tcp_address).await {
-                    Ok(listener) => {
-                        println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
-                        if ws_proxy.is_some() {
-                            let proxy_address = listener.local_addr().unwrap().to_string();
-                            tokio::spawn(async {
-                                websocket::create(ws_proxy.unwrap(), proxy_address).await.unwrap();
-                            });
-                        }
+        let win32_connection = win32::connect();
+        if win32_connection.is_ok() {
+            /* Define Objects */
+            let wm_arc = win32_connection.unwrap();
+            let tcplistener_result = TcpListener::bind(tcp_address).await;
 
-                        loop {
-                            let (client, _) = listener.accept().await?;
-                            let wm = Arc::clone(&wm_arc);
-                            tokio::spawn(async move {
-                                /* Handle The Client */
-                                session::new(client.peer_addr().unwrap().to_string(), SpifySession {
-                                    zlib_stream: encoding_zlib::create_zlib_stream()
-                                });
+            if tcplistener_result.is_ok() {
+                let listener = tcplistener_result.unwrap();
+                println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
+                if ws_proxy.is_some() {
+                    /* Unwrap Proxy Parameters */
+                    let ws_proxy = ws_proxy.unwrap();
+                    let ws_tcp_address = ws_proxy.0;
+                    let ws_secure = ws_proxy.1;
 
-                                /* Init Handshake */
-                                println!("Connection Established: {:?}", client);
-                                init_handshake(client, wm).await;
-                            });
-                        }
-                    }
-                    Err(err) => {
-                        println!("IP Address Binding Failed -> {}", err.to_string());
-                        Err(err.into())
-                    }
+                    let proxy_address = listener.local_addr().unwrap().to_string();
+                    tokio::spawn(async move {
+                        websocket::create(ws_tcp_address, proxy_address, ws_secure).await.unwrap();
+                    });
                 }
+
+                loop {
+                    let (client, _) = listener.accept().await?;
+                    let wm = Arc::clone(&wm_arc);
+                    tokio::spawn(async move {
+                        // Handle The Client
+                        session::new(client.peer_addr().unwrap().to_string(), SpifySession {
+                            zlib_stream: encoding_zlib::create_zlib_stream()
+                        });
+                        
+                        /* Init Handshake */
+                        println!("Connection Established: {:?}", client);
+                        init_handshake(client, wm).await;
+                    });
+                }     
+            } else {
+                let err = tcplistener_result.err().unwrap();
+                println!("IP Address Binding Failed -> {}", err.to_string());
+                return Err(err.into());
             }
-            Err(_) => {
-                return Err(String::from("Windows API Connection Error").into());
-            }
+        } else {
+            /* Return Win32 Connection Error */
+            return Err(String::from("Windows API Connection Error").into());
         }
     }
 
