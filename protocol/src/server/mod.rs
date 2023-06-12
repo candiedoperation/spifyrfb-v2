@@ -100,20 +100,26 @@ impl RFBEncodingType {
 }
 
 #[derive(Debug)]
-pub enum FrameBufferPixelData {
-    RAW(encoding_raw::RawPixelData),
-    ZLIB(encoding_zlib::ZlibPixelData),
-    VEC8(Vec<u8>)
-}
-
-#[derive(Debug)]
 pub struct FrameBufferRectangle {
     pub(crate) x_position: u16,
     pub(crate) y_position: u16,
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) encoding_type: i32,
-    pub(crate) pixel_data: FrameBufferPixelData,
+    pub(crate) encoded_pixels: Vec<u8>,
+    pub(crate) encoded_pixels_length: u32
+}
+
+#[derive(Clone)]
+pub struct FrameBuffer {
+    pub(crate) x_position: u16,
+    pub(crate) y_position: u16,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) bits_per_pixel: u8,
+    pub(crate) encoding: i32,
+    pub(crate) raw_pixels: Vec<u8>,
+    pub(crate) encoded_pixels: Vec<u8>
 }
 
 #[derive(Debug)]
@@ -186,30 +192,36 @@ async fn write_framebuffer_update_message(
             .await
             .unwrap_or(());
         
-        match framebuffer.pixel_data {
-            FrameBufferPixelData::RAW(raw) => {
+        match framebuffer.encoding_type {
+            RFBEncodingType::ZRLE => {
                 client_tx
-                .write_all(raw.pixel_data.as_slice())
+                .write_u32(framebuffer.encoded_pixels_length)
                 .await
-                .unwrap_or(());
-            },
-            FrameBufferPixelData::ZLIB(zlib) => {
-                client_tx
-                .write_u32(zlib.pixel_data_len)
-                .await
-                .unwrap_or(());
+                .unwrap();
 
                 client_tx
-                .write_all(zlib.pixel_data.as_slice())
+                .write_all(framebuffer.encoded_pixels.as_slice())
+                .await
+                .unwrap();
+            },
+            RFBEncodingType::ZLIB => {
+                client_tx
+                .write_u32(framebuffer.encoded_pixels_length)
+                .await
+                .unwrap();
+
+                client_tx
+                .write_all(framebuffer.encoded_pixels.as_slice())
+                .await
+                .unwrap();
+            },
+            _ => {
+                println!("RAW");
+                client_tx
+                .write_all(framebuffer.encoded_pixels.as_slice())
                 .await
                 .unwrap_or(());
             }
-            FrameBufferPixelData::VEC8(vec8) => {
-                client_tx
-                .write_all(vec8.as_slice())
-                .await
-                .unwrap_or(());
-            },
         }
     }
 }

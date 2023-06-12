@@ -1,18 +1,9 @@
 use crate::server::encoding_zlib::deflate;
-use super::encoding_zlib::ZlibPixelData;
+use super::{FrameBuffer, FrameBufferRectangle};
 
-#[derive(Clone)]
-pub struct ZRLE {
-    pub width: u16,
-    pub height: u16,
-    pub bytes_per_pixel: u8,
-    pub framebuffer: Vec<u8>,
-    pub session: String
-}
-
-pub fn get_pixel_data(pixel_data: ZRLE) -> ZlibPixelData {
+pub fn get_pixel_data(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangle {
     let mut c_pixels: Vec<u8> = vec![];
-    for pixel in pixel_data.framebuffer.chunks(4).collect::<Vec<&[u8]>>() {
+    for pixel in framebuffer.raw_pixels.chunks(4).collect::<Vec<&[u8]>>() {
         /* CPIXELS are only three bytes */
         c_pixels.push(pixel[0]);
         c_pixels.push(pixel[1]);
@@ -20,31 +11,34 @@ pub fn get_pixel_data(pixel_data: ZRLE) -> ZlibPixelData {
     }
 
     let encoded_tiles: Vec<u8>;
-    if pixel_data.width > 0 && pixel_data.height > 0 {
-        encoded_tiles = encode(ZRLE {
-            framebuffer: c_pixels,
-            ..pixel_data.clone()
+    if framebuffer.width > 0 && framebuffer.height > 0 {
+        encoded_tiles = encode(FrameBuffer {
+            encoded_pixels: c_pixels,
+            ..framebuffer.clone()
         });
     } else {
         encoded_tiles = Vec::with_capacity(1);
     }
     
     /* Add encoded_structure fields */
-    deflate(encoded_tiles, pixel_data.session)
+    deflate(FrameBuffer {
+        encoded_pixels: encoded_tiles,
+        ..framebuffer.clone()
+    }, session)
 }
 
-fn encode(pixel_data: ZRLE) -> Vec<u8> {
+fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
     let bytes_per_cpixel: u16 = 3;
     const ZRLE_TILE_WIDTH: f32 = 64_f32;
     const ZRLE_TILE_HEIGHT: f32 = 64_f32;
 
     /* Divide FrameBuffer into Tiles of 64x64 pixels */
-    let h_tiles = (pixel_data.width as f32 / ZRLE_TILE_WIDTH).ceil() as usize;
-    let v_tiles = (pixel_data.height as f32 / ZRLE_TILE_HEIGHT).ceil() as usize;
+    let h_tiles = (framebuffer.width as f32 / ZRLE_TILE_WIDTH).ceil() as usize;
+    let v_tiles = (framebuffer.height as f32 / ZRLE_TILE_HEIGHT).ceil() as usize;
 
     let mut zrle_tiles: Vec<Vec<u8>> = vec![Vec::new(); v_tiles * h_tiles];
     let hscan_lines: Vec<&[u8]>;
-    hscan_lines = pixel_data.framebuffer.chunks_exact((pixel_data.width * bytes_per_cpixel) as usize).collect();
+    hscan_lines = framebuffer.encoded_pixels.chunks_exact((framebuffer.width * bytes_per_cpixel) as usize).collect();
     
     let mut vertical_tile = 0;
     let mut hscan_line_ctr = 0;

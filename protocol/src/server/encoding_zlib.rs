@@ -1,11 +1,5 @@
 use std::{mem, ptr};
-use super::session;
-
-#[derive(Debug)]
-pub struct ZlibPixelData {
-    pub pixel_data_len: u32,
-    pub pixel_data: Vec<u8>
-}
+use super::{session, FrameBufferRectangle, FrameBuffer, RFBEncodingType};
 
 pub fn create_zlib_stream() -> libz_sys::z_stream {
     libz_sys::z_stream {
@@ -26,10 +20,21 @@ pub fn create_zlib_stream() -> libz_sys::z_stream {
     }
 }
 
-pub fn deflate(pixel_data: Vec<u8>, session: String) -> ZlibPixelData {
-    let max_compressed = pixel_data.len() + ((pixel_data.len() + 99) / 100) + 12;
-    let mut next_in: Vec<u8> = pixel_data.clone();
+pub fn deflate(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangle {
+    let zlib_data = framebuffer.encoded_pixels;
+    let max_compressed = zlib_data.len() + ((zlib_data.len() + 99) / 100) + 12;
+    let mut next_in: Vec<u8> = zlib_data.clone();
     let mut next_out: Vec<u8> = vec![0; max_compressed];
+
+    let mut framebuffer_rectangle = FrameBufferRectangle {
+        x_position: framebuffer.x_position,
+        y_position: framebuffer.y_position,
+        width: framebuffer.width,
+        height: framebuffer.height,
+        encoding_type: RFBEncodingType::RAW,
+        encoded_pixels: framebuffer.raw_pixels,
+        encoded_pixels_length: 0,
+    };
 
     unsafe {
         let mut zlib_stream = session::get_zlib_stream(session.clone());
@@ -55,11 +60,8 @@ pub fn deflate(pixel_data: Vec<u8>, session: String) -> ZlibPixelData {
             );
 
             if deflate_init_status != libz_sys::Z_OK {
-                println!("ZLIB: DeflateInit2_() failed. Status: {}", deflate_init_status);
-                return ZlibPixelData { 
-                    pixel_data_len: pixel_data.len() as u32, 
-                    pixel_data
-                };
+                println!("ZLIB: DeflateInit2_() failed (RAW Sent). Status: {}", deflate_init_status);
+                return framebuffer_rectangle;
             }
         }
 
@@ -70,24 +72,22 @@ pub fn deflate(pixel_data: Vec<u8>, session: String) -> ZlibPixelData {
         );
 
         if deflate_status != libz_sys::Z_OK {
-            println!("ZLIB: Deflate() failed. Status: {}", deflate_status);
-            return ZlibPixelData { 
-                pixel_data_len: pixel_data.len() as u32, 
-                pixel_data
-            };
+            println!("ZLIB: Deflate() failed (RAW Sent). Status: {}", deflate_status);
+            return framebuffer_rectangle;
         }
 
         /* Calculate Compression and Update Stream */
         let compressed_bytes = zlib_stream.total_out - previous_total_out;
         session::update_zlib_stream(session, zlib_stream);
 
-        ZlibPixelData { 
-            pixel_data_len: compressed_bytes as u32, 
-            pixel_data: (&next_out[..compressed_bytes as usize]).to_vec()
-        }
+        /* Update FrameBufferRectangle */
+        framebuffer_rectangle.encoded_pixels_length = compressed_bytes as u32;
+        framebuffer_rectangle.encoding_type = framebuffer.encoding;
+        framebuffer_rectangle.encoded_pixels = next_out[..(compressed_bytes as usize)].to_vec();
+        framebuffer_rectangle
     }
 }
 
-pub fn get_pixel_data(pixel_data: Vec<u8>, session: String) -> ZlibPixelData {
-    deflate(pixel_data, session)
+pub fn get_pixel_data(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangle {
+    deflate(framebuffer, session)
 }

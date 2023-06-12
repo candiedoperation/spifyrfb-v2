@@ -237,57 +237,33 @@ pub fn rectangle_framebuffer_update(
         Win32_Gdi::DeleteObject(compatible_bitmap);
 
         let mut frame_buffer: Vec<FrameBufferRectangle> = vec![];
+        let mut framebuffer_struct = FrameBuffer {
+            x_position: x_position as u16,
+            y_position: y_position as u16,
+            width,
+            height,
+            bits_per_pixel: WIN32_BITS_PER_PIXEL,
+            raw_pixels: pixel_data,
+            encoding: RFBEncodingType::RAW,
+            encoded_pixels: vec![],
+        };
+
         match encoding_type {
             RFBEncodingType::RAW => {
-                frame_buffer.push(FrameBufferRectangle {
-                    x_position: 0,
-                    y_position: 0,
-                    width,
-                    height,
-                    encoding_type: RFBEncodingType::RAW,
-                    pixel_data: FrameBufferPixelData::RAW(encoding_raw::get_pixel_data(pixel_data))
-                });
-            },
-            RFBEncodingType::ZLIB => {
-                frame_buffer.push(FrameBufferRectangle { 
-                    x_position: 0, 
-                    y_position: 0, 
-                    width, 
-                    height, 
-                    encoding_type: RFBEncodingType::ZLIB, 
-                    pixel_data: FrameBufferPixelData::ZLIB(encoding_zlib::get_pixel_data(pixel_data, session))
-                });
+                framebuffer_struct.encoding = RFBEncodingType::RAW;
+                framebuffer_rectangles.push(encoding_raw::get_pixel_data(framebuffer_struct));
             },
             RFBEncodingType::ZRLE => {
-                frame_buffer.push(FrameBufferRectangle {
-                    x_position: 0,
-                    y_position: 0,
-                    width,
-                    height,
-                    encoding_type: RFBEncodingType::ZRLE,
-                    pixel_data: server::FrameBufferPixelData::ZLIB(encoding_zrle::get_pixel_data(ZRLE { 
-                        width, 
-                        height, 
-                        bytes_per_pixel: (WIN32_BITS_PER_PIXEL / 8), 
-                        framebuffer: pixel_data,
-                        session,
-                    }))
-                });
+                framebuffer_struct.encoding = RFBEncodingType::ZRLE;
+                framebuffer_rectangles.push(encoding_zrle::get_pixel_data(framebuffer_struct, session));
+            },
+            RFBEncodingType::ZLIB => {
+                framebuffer_struct.encoding = RFBEncodingType::ZLIB;
+                framebuffer_rectangles.push(encoding_zlib::get_pixel_data(framebuffer_struct, session));
             },
             RFBEncodingType::HEX_TILE => {
-                frame_buffer.push(FrameBufferRectangle {
-                    x_position: x_position as u16,
-                    y_position: y_position as u16,
-                    width,
-                    height,
-                    encoding_type: RFBEncodingType::HEX_TILE,
-                    pixel_data: server::FrameBufferPixelData::VEC8(encoding_hextile::get_pixel_data(Hextile {
-                        width,
-                        height,
-                        bits_per_pixel: WIN32_BITS_PER_PIXEL,
-                        framebuffer: pixel_data,
-                    }))
-                });
+                framebuffer_struct.encoding = RFBEncodingType::HEX_TILE;
+                framebuffer_rectangles.push(encoding_hextile::get_pixel_data(framebuffer_struct));
             }
             _ => {}
         }

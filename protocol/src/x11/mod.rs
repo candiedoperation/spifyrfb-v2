@@ -18,10 +18,9 @@
 
 mod keycodes;
 use std::{collections::HashMap, sync::Arc};
-
 use crate::server::{
     self, FrameBufferRectangle, FrameBufferUpdate, PixelFormat, RFBEncodingType, RFBServerInit,
-    ServerToClientMessage, WindowManager, encoding_raw, encoding_zrle::{self, ZRLE}, encoding_zlib, encoding_hextile::{self, Hextile},
+    ServerToClientMessage, WindowManager, encoding_raw, encoding_zrle, encoding_zlib, encoding_hextile, FrameBuffer,
 };
 
 use x11rb::{
@@ -201,58 +200,34 @@ pub fn rectangle_framebuffer_update(
         pixel_data.push(255);
     }
 
-    let mut frame_buffer: Vec<FrameBufferRectangle> = vec![];
+    let mut framebuffer_rectangles: Vec<FrameBufferRectangle> = vec![];
+    let mut framebuffer_struct = FrameBuffer {
+        x_position: x_position as u16,
+        y_position: y_position as u16,
+        width,
+        height,
+        bits_per_pixel: x11_screen.root_depth,
+        raw_pixels: pixel_data,
+        encoding: RFBEncodingType::RAW,
+        encoded_pixels: vec![],
+    };
+
     match encoding_type {
         RFBEncodingType::RAW => {
-            frame_buffer.push(FrameBufferRectangle {
-                x_position: x_position.try_into().unwrap(),
-                y_position: y_position.try_into().unwrap(),
-                width,
-                height,
-                encoding_type: RFBEncodingType::RAW,
-                pixel_data: server::FrameBufferPixelData::RAW(encoding_raw::get_pixel_data(pixel_data))
-            });
+            framebuffer_struct.encoding = RFBEncodingType::RAW;
+            framebuffer_rectangles.push(encoding_raw::get_pixel_data(framebuffer_struct));
         },
         RFBEncodingType::ZRLE => {
-            frame_buffer.push(FrameBufferRectangle {
-                x_position: x_position.try_into().unwrap(),
-                y_position: y_position.try_into().unwrap(),
-                width,
-                height,
-                encoding_type: RFBEncodingType::ZRLE,
-                pixel_data: server::FrameBufferPixelData::ZLIB(encoding_zrle::get_pixel_data(ZRLE { 
-                    width, 
-                    height, 
-                    bytes_per_pixel: x11_screen.root_depth, 
-                    framebuffer: pixel_data,
-                    session
-                }))
-            });
+            framebuffer_struct.encoding = RFBEncodingType::ZRLE;
+            framebuffer_rectangles.push(encoding_zrle::get_pixel_data(framebuffer_struct, session));
         },
         RFBEncodingType::ZLIB => {
-            frame_buffer.push(FrameBufferRectangle {
-                x_position: x_position.try_into().unwrap(),
-                y_position: y_position.try_into().unwrap(),
-                width,
-                height,
-                encoding_type: RFBEncodingType::ZLIB,
-                pixel_data: server::FrameBufferPixelData::ZLIB(encoding_zlib::get_pixel_data(pixel_data, session))
-            });
+            framebuffer_struct.encoding = RFBEncodingType::ZLIB;
+            framebuffer_rectangles.push(encoding_zlib::get_pixel_data(framebuffer_struct, session));
         },
         RFBEncodingType::HEX_TILE => {
-            frame_buffer.push(FrameBufferRectangle {
-                x_position: x_position.try_into().unwrap(),
-                y_position: y_position.try_into().unwrap(),
-                width,
-                height,
-                encoding_type: RFBEncodingType::HEX_TILE,
-                pixel_data: server::FrameBufferPixelData::VEC8(encoding_hextile::get_pixel_data(Hextile {
-                    width,
-                    height,
-                    bits_per_pixel: x11_screen.root_depth,
-                    framebuffer: pixel_data,
-                }))
-            });
+            framebuffer_struct.encoding = RFBEncodingType::HEX_TILE;
+            framebuffer_rectangles.push(encoding_hextile::get_pixel_data(framebuffer_struct));
         }
         _ => {}
     }
@@ -261,7 +236,7 @@ pub fn rectangle_framebuffer_update(
         message_type: ServerToClientMessage::FRAME_BUFFER_UPDATE,
         padding: 0,
         number_of_rectangles: 1,
-        frame_buffer,
+        frame_buffer: framebuffer_rectangles,
     }
 }
 
