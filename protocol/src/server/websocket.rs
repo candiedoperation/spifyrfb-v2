@@ -4,7 +4,7 @@ use crate::{server::parser, debug};
 
 use super::parser::websocket::OPCODE;
 
-trait GetBits {
+pub trait GetBits {
     fn get_bits_be(&self) -> Vec<bool>;
     fn from_bits(bits: Vec<bool>, is_le: bool) -> Self;
     fn get_bits_le(&self) -> Vec<bool> {
@@ -192,16 +192,7 @@ async fn listen_websocket(mut client: TcpStream) {
                 /* Decode the Payload, if mask was set */
                 if mask_key.is_some() {
                     let payload_mask = mask_key.unwrap();
-                    let mut decoded_payload: Vec<u8> = Vec::with_capacity(payload.len());
-
-                    for index in 0..payload.len() {
-                        decoded_payload.push(
-                            payload[index] ^ payload_mask[index % 4]
-                        );
-                    }
-
-                    /* Update the Payload */
-                    payload = decoded_payload;
+                    payload = parser::websocket::unmask_payload(payload_mask, payload);
                 }
 
                 if fin_flag == false {
@@ -226,8 +217,17 @@ async fn listen_websocket(mut client: TcpStream) {
                         debug::l1(format!("PAYLOAD:\n{}", String::from_utf8_lossy(&payload[..])));
                     },
                     OPCODE::CONNECTION_CLOSE => {
-                        /* Websocket Connection Closed */
-                        debug::l1(format!("Websocket Connection Closed"));
+                        /* ACK Websocket Disconnection, 1000 -> Normal Closure */
+                        let frame = parser::websocket::create_frame(
+                            1000_u16.to_be_bytes().to_vec(),
+                            OPCODE::CONNECTION_CLOSE,
+                            false
+                        );
+
+                        client_tx
+                        .write_all(frame.as_slice())
+                        .await
+                        .unwrap();
                     }
                     _ => {
                         debug::l1(format!("Invalid OPCODE: {}", opcode));

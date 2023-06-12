@@ -13,7 +13,7 @@ pub mod http {
                 break;
             }
         }
-    
+
         /* Send HTTP Version Reply */
         http_version
     }
@@ -66,7 +66,9 @@ pub mod http {
 
 pub mod websocket {
     use base64::{engine::general_purpose, Engine};
-    use sha1::{Sha1, Digest};
+    use rand::Rng;
+    use crate::server::websocket::GetBits;
+    use sha1::{Digest, Sha1};
 
     /* Define Constants */
     const WEBSOCKET_MAGIC_STRING: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -93,5 +95,85 @@ pub mod websocket {
         /* Base64 Encode the SHA-1 Hash */
         let b64 = general_purpose::STANDARD.encode(sha1_hash);
         b64
+    }
+
+    fn generate_masking_key() -> [u8; 4] {
+        let mut rand_rng = rand::thread_rng();
+        (rand_rng.gen::<u32>()).to_be_bytes()
+    }
+
+    pub fn unmask_payload(mask_key: [u8; 4], payload: Vec<u8>) -> Vec<u8> {
+        let mut decoded_payload: Vec<u8> = Vec::with_capacity(payload.len());
+        for index in 0..payload.len() {
+            decoded_payload.push(payload[index] ^ mask_key[index % 4]);
+        }
+
+        /* Return Decoded Payload */
+        return decoded_payload;
+    }
+
+    pub fn mask_payload(payload: Vec<u8>) -> Vec<u8> {
+        /* TODO */
+        vec![]
+    }
+
+    pub fn create_frame(payload: Vec<u8>, opcode: u8, secure: bool) -> Vec<u8> {
+        /* A new websocket Frame */
+        let mut websocket_frame: Vec<u8> = Vec::with_capacity(payload.len() + 15);
+
+        /* First Byte has FIN/RSV(1-3)/OPCODE */
+        let mut fin_byte = vec![true; 1];
+        fin_byte.extend_from_slice(&[false; 3]);
+        fin_byte.extend_from_slice(&opcode.get_bits_le()[4..8]);
+
+        let mut mask_byte = vec![false; 1];
+        let masking_key: Option<[u8; 4]>;
+        if secure == true {
+            mask_byte[0] = true;
+            masking_key = Option::Some(generate_masking_key());
+        } else {
+            masking_key = Option::None;
+        }
+
+        /* Add Payload hint to Mask Byte */
+        let mut extended_payload: Vec<u8> = vec![];
+
+        if payload.len() < 126 {
+            let payload_hint = payload.len() as u8;
+            mask_byte.extend_from_slice(&payload_hint.get_bits_le()[1..8]);
+        } else if payload.len() <= u16::MAX as usize {
+            /* Define Payload Hint and Length */
+            let payload_hint = 126_u8;
+            let payload_len = payload.len() as u16;
+
+            /* Write Hint and Extended Payload */
+            mask_byte.extend_from_slice(&payload_hint.get_bits_le()[1..8]);
+            extended_payload.extend_from_slice(&payload_len.to_be_bytes());
+        } else if payload.len() <= u64::MAX as usize {
+            let payload_hint = 127_u8;
+            let payload_len = payload.len() as u64;
+
+            mask_byte.extend_from_slice(&payload_hint.get_bits_le()[1..8]);
+            extended_payload.extend_from_slice(&payload_len.to_be_bytes());
+        } else { /* USE FIN, TODO in Future */ }
+
+        websocket_frame.push(u8::from_bits(fin_byte, true));
+        websocket_frame.push(u8::from_bits(mask_byte, true));
+        websocket_frame.extend_from_slice(&extended_payload);
+
+        /* Add Masking Key if Secure */
+        if masking_key.is_some() {
+            websocket_frame.extend_from_slice(&masking_key.unwrap())
+        }
+        
+        /* Add Payload to Frame */
+        if secure == true {
+            websocket_frame.extend_from_slice(&mask_payload(payload));
+        } else {
+            websocket_frame.extend_from_slice(&payload);
+        }
+
+        /* Return Created Frame */
+        return websocket_frame;
     }
 }
