@@ -87,6 +87,20 @@ async fn proxy_websocket(client: TcpStream, proxy_address: String) {
                 } else {
                     /* Set Mask Key to None */
                     mask_key = Option::None;
+
+                    /* Disconnect with Client */
+                    let mut frame_payload = 1002_u16.to_be_bytes().to_vec();
+                    frame_payload.extend_from_slice("Payload is not Masked".as_bytes());
+
+                    /* Construct Frame */
+                    let frame = parser::websocket::create_frame(
+                        frame_payload,
+                        OPCODE::CONNECTION_CLOSE,
+                        false,
+                    );
+
+                    /* Push to pending writes */
+                    pending_writes.push(frame);
                 }
 
                 /* Read the Payload */
