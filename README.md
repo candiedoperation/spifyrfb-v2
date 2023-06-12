@@ -5,8 +5,8 @@ A Modern RFB Server implementation using Rust, written from scratch.
 
 | Name                       | SpifyRFB Support |
 |----------------------------|--------------|
-| Windows                    | ✅            |
-| Linux (X11)                | ✅            |
+| Windows                    | ✅           |
+| Linux (X11)                | ✅           |
 | macOS                      |              |
 
 ### Security Types (RFB Protocol)
@@ -20,19 +20,19 @@ A Modern RFB Server implementation using Rust, written from scratch.
 
 | Name     | Number | SpifyRFB Support | 
 |----------|--------|--------------|
-| Raw      | 1      |        ✅     |
+| Raw      | 1      |        ✅    |
 | CopyRect | 2      |              |
 | RRE      | 3      |              |
-| Hextile  | 5      |        ✅      |
-| ZLIB     | 6      |        ✅      |
+| Hextile  | 5      |        ✅    |
+| ZLIB     | 6      |        ✅    |
 | TRLE     | 15     |              | 
-| ZRLE     | 16     |        ✅      |
+| ZRLE     | 16     |        ✅    |
 
 
 ### Transports
 
 | Name                       | SpifyRFB Support |
 |----------------------------|--------------|
-| TCP Sockets                | ✅            |
-| Websockets                 |              |
+| TCP Sockets                | ✅           |
+| Websockets                 | ✅           |
 | Encrypted Websockets       |              |
