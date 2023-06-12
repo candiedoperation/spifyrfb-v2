@@ -1,3 +1,125 @@
+use std::mem;
+
+pub trait GetBits {
+    fn get_bits_be(&self) -> Vec<bool>;
+    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self;
+    fn get_bits_le(&self) -> Vec<bool> {
+        let be_bits = self.get_bits_be();
+        be_bits.into_iter().rev().collect()
+    }
+}
+
+impl GetBits for u8 {
+    fn get_bits_be(&self) -> Vec<bool> {
+        const BIT_COUNT: usize = mem::size_of::<u8>() * 8;
+        let mut bits: Vec<bool> = Vec::with_capacity(BIT_COUNT);
+        for index in 0..BIT_COUNT {
+            bits.push((self >> index & 1) == 1);
+        }
+
+        return bits;
+    }
+
+    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self {
+        let mut bits_added: Vec<bool> = vec![];
+        let sizeof = mem::size_of::<Self>() * 8;
+        let mut integer: Self = 0;
+
+        /* Add bit headers for bits less than size */
+        if bits.len() < sizeof {
+            bits_added = vec![false; sizeof - bits.len()]
+        }
+
+        bits_added.extend_from_slice(&bits[..]);
+        if is_le == true {
+            /* If input is Little Endian, Reverse the bits */
+            bits_added = bits_added.into_iter().rev().collect();
+        }
+
+        for index in 0..bits_added.len() {
+            if bits_added[index] == true {
+                integer = integer | (1 << index);
+            }
+        }
+
+        integer
+    }
+}
+
+impl GetBits for u16 {
+    fn get_bits_be(&self) -> Vec<bool> {
+        const BIT_COUNT: usize = mem::size_of::<u16>() * 8;
+        let mut bits: Vec<bool> = Vec::with_capacity(BIT_COUNT);
+        for index in 0..BIT_COUNT {
+            bits.push((self >> index & 1) == 1);
+        }
+
+        return bits;
+    }
+
+    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self {
+        let mut bits_added: Vec<bool> = vec![];
+        let sizeof = mem::size_of::<Self>() * 8;
+        let mut integer: Self = 0;
+
+        /* Add bit headers for bits less than size */
+        if bits.len() < sizeof {
+            bits_added = vec![false; sizeof - bits.len()]
+        }
+
+        bits_added.extend_from_slice(&bits[..]);
+        if is_le == true {
+            /* If input is Little Endian, Reverse the bits */
+            bits_added = bits_added.into_iter().rev().collect();
+        }
+
+        for index in 0..bits_added.len() {
+            if bits_added[index] == true {
+                integer = integer | (1 << index);
+            }
+        }
+
+        integer
+    }
+}
+
+impl GetBits for u64 {
+    fn get_bits_be(&self) -> Vec<bool> {
+        const BIT_COUNT: usize = mem::size_of::<u64>() * 8;
+        let mut bits: Vec<bool> = Vec::with_capacity(BIT_COUNT);
+        for index in 0..BIT_COUNT {
+            bits.push((self >> index & 1) == 1);
+        }
+
+        return bits;
+    }
+
+    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self {
+        let mut bits_added: Vec<bool> = vec![];
+        let sizeof = mem::size_of::<Self>() * 8;
+        let mut integer: Self = 0;
+
+        /* Add bit headers for bits less than size */
+        if bits.len() < sizeof {
+            bits_added = vec![false; sizeof - bits.len()]
+        }
+
+        bits_added.extend_from_slice(&bits[..]);
+        if is_le == true {
+            /* If input is Little Endian, Reverse the bits */
+            bits_added = bits_added.into_iter().rev().collect();
+        }
+
+        for index in 0..bits_added.len() {
+            if bits_added[index] == true {
+                integer = integer | (1 << index);
+            }
+        }
+
+        integer
+    }
+}
+
 pub mod http {
     /* Define Globals */
     const HTTP_METHODS: [&str; 2] = ["GET", "POST"];
@@ -67,8 +189,8 @@ pub mod http {
 pub mod websocket {
     use base64::{engine::general_purpose, Engine};
     use rand::Rng;
-    use crate::server::websocket::GetBits;
     use sha1::{Digest, Sha1};
+    use super::GetBits;
 
     /* Define Constants */
     const WEBSOCKET_MAGIC_STRING: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";

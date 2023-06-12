@@ -24,7 +24,7 @@ pub mod session;
 pub mod websocket;
 pub mod parser;
 
-use crate::server::session::SpifySession;
+use crate::{server::session::SpifySession, debug};
 #[cfg(target_os = "windows")]
 use crate::win32;
 
@@ -254,7 +254,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_screen.clone(),
-                            RFBEncodingType::ZRLE,
+                            RFBEncodingType::RAW,
                             0,
                             0,
                             x11_screen.width_in_pixels,
@@ -731,43 +731,48 @@ pub async fn create(tcp_address: String, ws_proxy: Option<String>) -> Result<(),
     {
         /* PERSISTENT X11 CONNECTION TO PREVENT A ZILLION CONNECTIONS ON CLIENT EVENTS */
         /* TRY WAYLAND DETECTION */
-        match x11::connect() {
-            Ok(wm_arc) => {
-                /* Create a Tokio TCP Listener on Free Port */
-                match TcpListener::bind(tcp_address).await {
-                    Ok(listener) => {
-                        println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
-                        if ws_proxy.is_some() {
-                            let proxy_address = listener.local_addr().unwrap().to_string();
-                            tokio::spawn(async {
-                                websocket::create(ws_proxy.unwrap(), proxy_address).await.unwrap();
-                            });
-                        }
+        let x11_connection = x11::connect();
+        if x11_connection.is_ok() {
+            /* Get WM and Listen on Port */
+            let wm_arc = x11_connection.unwrap();
+            let tcplistener_result = TcpListener::bind(tcp_address).await;
 
-                        loop {
-                            let (client, _) = listener.accept().await?;
-                            let wm = Arc::clone(&wm_arc);
-                            tokio::spawn(async move {
-                                // Handle The Client
-                                session::new(client.peer_addr().unwrap().to_string(), SpifySession {
-                                    zlib_stream: encoding_zlib::create_zlib_stream()
-                                });
-                                
-                                /* Init Handshake */
-                                println!("Connection Established: {:?}", client);
-                                init_handshake(client, wm).await;
-                            });
-                        }
-                    },
-                    Err(err) => {
-                        println!("IP Address Binding Failed -> {}", err.to_string());
-                        return Err(err.into());
-                    }
+            /* Check if TcpListener is Successful */
+            if tcplistener_result.is_ok() {
+                let listener = tcplistener_result.unwrap();
+                println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
+                if ws_proxy.is_some() {
+                    let proxy_address = listener.local_addr().unwrap().to_string();
+                    tokio::spawn(async {
+                        websocket::create(ws_proxy.unwrap(), proxy_address).await.unwrap();
+                    });
                 }
+
+                loop {
+                    let (client, _) = listener.accept().await?;
+                    let wm = Arc::clone(&wm_arc);
+                    tokio::spawn(async move {
+                        // Handle The Client
+                        session::new(client.peer_addr().unwrap().to_string(), SpifySession {
+                            zlib_stream: encoding_zlib::create_zlib_stream()
+                        });
+                        
+                        /* Init Handshake */
+                        println!("Connection Established: {:?}", client);
+                        init_handshake(client, wm).await;
+                    });
+                }                
+            } else {
+                /* Get Error */
+                let err = tcplistener_result.err().unwrap();
+
+                /* Debug */
+                debug::l1(format!("IP Address Binding Failed -> {}", err.to_string()));
+                return Err(err.into());
             }
-            Err(_) => {
-                return Err(String::from("x11-server Connection Error").into());
-            }
+        } else {
+            /* Return X11 Connection Error */
+            return Err(String::from("x11-server Connection Error").into());
         }
     }
 }

@@ -1,132 +1,11 @@
 use crate::{debug, server::parser};
-use std::{error::Error, mem, time::Duration};
+use std::{error::Error, time::Duration};
+use super::parser::{websocket::OPCODE, GetBits};
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt},
-    net::{tcp::WriteHalf, TcpListener, TcpStream},
+    net::{TcpListener, TcpStream},
     time::timeout,
 };
-
-use super::parser::websocket::OPCODE;
-
-pub trait GetBits {
-    fn get_bits_be(&self) -> Vec<bool>;
-    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self;
-    fn get_bits_le(&self) -> Vec<bool> {
-        let be_bits = self.get_bits_be();
-        be_bits.into_iter().rev().collect()
-    }
-}
-
-impl GetBits for u8 {
-    fn get_bits_be(&self) -> Vec<bool> {
-        const BIT_COUNT: usize = mem::size_of::<u8>() * 8;
-        let mut bits: Vec<bool> = Vec::with_capacity(BIT_COUNT);
-        for index in 0..BIT_COUNT {
-            bits.push((self >> index & 1) == 1);
-        }
-
-        return bits;
-    }
-
-    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self {
-        let mut bits_added: Vec<bool> = vec![];
-        let sizeof = mem::size_of::<Self>() * 8;
-        let mut integer: Self = 0;
-
-        /* Add bit headers for bits less than size */
-        if bits.len() < sizeof {
-            bits_added = vec![false; sizeof - bits.len()]
-        }
-
-        bits_added.extend_from_slice(&bits[..]);
-        if is_le == true {
-            /* If input is Little Endian, Reverse the bits */
-            bits_added = bits_added.into_iter().rev().collect();
-        }
-
-        for index in 0..bits_added.len() {
-            if bits_added[index] == true {
-                integer = integer | (1 << index);
-            }
-        }
-
-        integer
-    }
-}
-
-impl GetBits for u16 {
-    fn get_bits_be(&self) -> Vec<bool> {
-        const BIT_COUNT: usize = mem::size_of::<u16>() * 8;
-        let mut bits: Vec<bool> = Vec::with_capacity(BIT_COUNT);
-        for index in 0..BIT_COUNT {
-            bits.push((self >> index & 1) == 1);
-        }
-
-        return bits;
-    }
-
-    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self {
-        let mut bits_added: Vec<bool> = vec![];
-        let sizeof = mem::size_of::<Self>() * 8;
-        let mut integer: Self = 0;
-
-        /* Add bit headers for bits less than size */
-        if bits.len() < sizeof {
-            bits_added = vec![false; sizeof - bits.len()]
-        }
-
-        bits_added.extend_from_slice(&bits[..]);
-        if is_le == true {
-            /* If input is Little Endian, Reverse the bits */
-            bits_added = bits_added.into_iter().rev().collect();
-        }
-
-        for index in 0..bits_added.len() {
-            if bits_added[index] == true {
-                integer = integer | (1 << index);
-            }
-        }
-
-        integer
-    }
-}
-
-impl GetBits for u64 {
-    fn get_bits_be(&self) -> Vec<bool> {
-        const BIT_COUNT: usize = mem::size_of::<u64>() * 8;
-        let mut bits: Vec<bool> = Vec::with_capacity(BIT_COUNT);
-        for index in 0..BIT_COUNT {
-            bits.push((self >> index & 1) == 1);
-        }
-
-        return bits;
-    }
-
-    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self {
-        let mut bits_added: Vec<bool> = vec![];
-        let sizeof = mem::size_of::<Self>() * 8;
-        let mut integer: Self = 0;
-
-        /* Add bit headers for bits less than size */
-        if bits.len() < sizeof {
-            bits_added = vec![false; sizeof - bits.len()]
-        }
-
-        bits_added.extend_from_slice(&bits[..]);
-        if is_le == true {
-            /* If input is Little Endian, Reverse the bits */
-            bits_added = bits_added.into_iter().rev().collect();
-        }
-
-        for index in 0..bits_added.len() {
-            if bits_added[index] == true {
-                integer = integer | (1 << index);
-            }
-        }
-
-        integer
-    }
-}
 
 async fn proxy_websocket(client: TcpStream, proxy_address: String) {
     /* Split Stream for simulatneous TX/RX */
@@ -136,8 +15,8 @@ async fn proxy_websocket(client: TcpStream, proxy_address: String) {
     let mut fin_payload_opcode: u8 = 0;
 
     /* Connect to Remote Host */
-    let mut remote = TcpStream::connect(proxy_address).await;
-    if remote.is_err() {
+    let remote_connection = TcpStream::connect(proxy_address).await;
+    if remote_connection.is_err() {
         /* Disconnect from Client, Server Error(1011) */
         let mut frame_payload = 1011_u16.to_be_bytes().to_vec();
         frame_payload.extend_from_slice("Remote Host Connection Failed".as_bytes());
@@ -149,15 +28,17 @@ async fn proxy_websocket(client: TcpStream, proxy_address: String) {
             false,
         );
 
-        /* Push to pending writes */
+        /* Push to pending writes and init Remote */
         pending_writes.push(frame);
+        return;
     }
 
+    let mut remote = remote_connection.unwrap();
     loop {
         /* Read Websocket Opcode */
         let mut buf: [u8; 2] = [0; 2];
         let rx_timeout = timeout(
-            Duration::from_millis(50), 
+            Duration::from_millis(10), 
             client_rx.read_exact(&mut buf)
         ).await;
 
@@ -240,15 +121,28 @@ async fn proxy_websocket(client: TcpStream, proxy_address: String) {
                 /* Process the Payload */
                 match opcode {
                     OPCODE::TEXT_FRAME => {
-                        debug::l1(format!(
-                            "PAYLOAD:\n{}",
-                            String::from_utf8_lossy(&payload[..])
-                        ));
+                        /* Write Payload to Remote Host */
+                        remote.write_all(&payload[..]).await.unwrap();
+                    },
+                    OPCODE::BINARY_FRAME => {
+                        /* Write Payload to Remote Host */
+                        remote.write_all(&payload[..]).await.unwrap();
                     }
                     OPCODE::CONNECTION_CLOSE => {
-                        /* ACK Websocket Disconnection, 1000 -> Normal Closure */
+                        let remote_shutdown = remote.shutdown().await;
+                        let mut frame_payload: Vec<u8>;
+                        if remote_shutdown.is_err() {
+                            /* 1011 -> Server Error */
+                            frame_payload = 1011_u16.to_be_bytes().to_vec();
+                            frame_payload.extend_from_slice("Failed to Close Remote Connection".as_bytes());
+                        } else {
+                            /* 1000 -> Normal Closure */
+                            frame_payload = 1000_u16.to_be_bytes().to_vec();
+                            frame_payload.extend_from_slice("Remote Connection Closed".as_bytes());
+                        }
+
                         let frame = parser::websocket::create_frame(
-                            1000_u16.to_be_bytes().to_vec(),
+                            frame_payload,
                             OPCODE::CONNECTION_CLOSE,
                             false,
                         );
@@ -261,11 +155,31 @@ async fn proxy_websocket(client: TcpStream, proxy_address: String) {
                     }
                 }
             } else {
-                /* Failed to Reach Client */
-                println!("Websocket Client Disconnected");
+                /* Failed to Reach Client, Close Remote Host Connection */
+                remote.shutdown().await.unwrap();
                 return;
             }
         } else {
+            /* Read from Remote Host and Write to Websocket Client */
+            let mut remote_buffer: Vec<u8> = vec![0; 32768];
+            let remote_rx_timeout = timeout(
+                Duration::from_millis(10),
+                remote.read(&mut remote_buffer)
+            ).await;
+
+            if remote_rx_timeout.is_ok() {
+                let remote_rx = remote_rx_timeout.unwrap();
+                let frame = parser::websocket::create_frame(
+                    remote_buffer[..remote_rx.unwrap()].to_vec(),
+                    OPCODE::BINARY_FRAME,
+                    false,
+                );
+                
+                /* Push to Pending Writes */
+                pending_writes.push(frame);
+            }
+
+            /* Send all Pending Writes */
             for ws_payload in pending_writes {
                 client_tx
                 .write_all(&ws_payload)
