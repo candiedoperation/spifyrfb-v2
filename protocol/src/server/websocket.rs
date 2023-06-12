@@ -1,6 +1,10 @@
-use std::{error::Error, mem};
-use tokio::{net::{TcpListener, TcpStream}, io::{AsyncReadExt, AsyncWriteExt}};
-use crate::{server::parser, debug};
+use crate::{debug, server::parser};
+use std::{error::Error, mem, time::Duration};
+use tokio::{
+    io::{self, AsyncReadExt, AsyncWriteExt},
+    net::{tcp::WriteHalf, TcpListener, TcpStream},
+    time::timeout,
+};
 
 use super::parser::websocket::OPCODE;
 
@@ -124,33 +128,53 @@ impl GetBits for u64 {
     }
 }
 
-async fn listen_websocket(mut client: TcpStream) {
+async fn proxy_websocket(client: TcpStream, proxy_address: String) {
     /* Split Stream for simulatneous TX/RX */
-    let (mut client_rx, mut client_tx) = client.split();
+    let (mut client_rx, mut client_tx) = io::split(client);
+    let mut pending_writes: Vec<Vec<u8>> = vec![];
     let mut fin_payload: Vec<u8> = vec![];
     let mut fin_payload_opcode: u8 = 0;
+
+    /* Connect to Remote Host */
+    let mut remote = TcpStream::connect(proxy_address).await;
+    if remote.is_err() {
+        /* Disconnect from Client, Server Error(1011) */
+        let mut frame_payload = 1011_u16.to_be_bytes().to_vec();
+        frame_payload.extend_from_slice("Remote Host Connection Failed".as_bytes());
+
+        /* Generate Frame */
+        let frame = parser::websocket::create_frame(
+            frame_payload,
+            OPCODE::CONNECTION_CLOSE,
+            false,
+        );
+
+        /* Push to pending writes */
+        pending_writes.push(frame);
+    }
 
     loop {
         /* Read Websocket Opcode */
         let mut buf: [u8; 2] = [0; 2];
-        match client_rx.read_exact(&mut buf).await {
-            Ok(0) => {
-                /* Client has closed the Connection */
-                println!("Websocket Client Closed Connection");
-                return;
-            },
-            Ok(_) => {
+        let rx_timeout = timeout(
+            Duration::from_millis(50), 
+            client_rx.read_exact(&mut buf)
+        ).await;
+
+        if rx_timeout.is_ok() {
+            let rx = rx_timeout.unwrap();
+            if rx.unwrap_or(0) != 0 {
                 /*
-                    We create slices using a range within brackets by specifying 
-                    [starting_index..ending_index], where starting_index is the 
-                    first position in the slice and ending_index is one more than 
+                    We create slices using a range within brackets by specifying
+                    [starting_index..ending_index], where starting_index is the
+                    first position in the slice and ending_index is one more than
                     the last position in the slice.
                 */
 
                 /* Get Opcode */
                 let fin_flag = buf[0].get_bits_le()[0];
                 let mut opcode: u8 = u8::from_bits(buf[0].get_bits_le()[4..8].to_vec(), true);
-                
+
                 /* Find Payload Hint */
                 let payload_length: u64;
                 let mask_key: Option<[u8; 4]>;
@@ -197,12 +221,14 @@ async fn listen_websocket(mut client: TcpStream) {
 
                 if fin_flag == false {
                     /* Extend FIN Payload */
-                    if opcode != OPCODE::CONTINUATION_FRAME { fin_payload_opcode = opcode; }
+                    if opcode != OPCODE::CONTINUATION_FRAME {
+                        fin_payload_opcode = opcode;
+                    }
                     fin_payload.extend_from_slice(&payload[..]);
 
                     /* Do not process the Payload */
                     continue;
-                } else if fin_flag == true && opcode == OPCODE::CONTINUATION_FRAME  {
+                } else if fin_flag == true && opcode == OPCODE::CONTINUATION_FRAME {
                     fin_payload.extend_from_slice(&payload[..]);
                     payload = fin_payload.clone();
                     opcode = fin_payload_opcode;
@@ -214,47 +240,54 @@ async fn listen_websocket(mut client: TcpStream) {
                 /* Process the Payload */
                 match opcode {
                     OPCODE::TEXT_FRAME => {
-                        debug::l1(format!("PAYLOAD:\n{}", String::from_utf8_lossy(&payload[..])));
-                    },
+                        debug::l1(format!(
+                            "PAYLOAD:\n{}",
+                            String::from_utf8_lossy(&payload[..])
+                        ));
+                    }
                     OPCODE::CONNECTION_CLOSE => {
                         /* ACK Websocket Disconnection, 1000 -> Normal Closure */
                         let frame = parser::websocket::create_frame(
                             1000_u16.to_be_bytes().to_vec(),
                             OPCODE::CONNECTION_CLOSE,
-                            false
+                            false,
                         );
 
-                        client_tx
-                        .write_all(frame.as_slice())
-                        .await
-                        .unwrap();
+                        /* Push to pending writes */
+                        pending_writes.push(frame);
                     }
                     _ => {
                         debug::l1(format!("Invalid OPCODE: {}", opcode));
                     }
                 }
-            },
-            Err(_) => {
-                /* Client has Disconnected, Unexpected Error */
-                println!("Websocket Client Disconnected (ERR)");
+            } else {
+                /* Failed to Reach Client */
+                println!("Websocket Client Disconnected");
                 return;
-            },
+            }
+        } else {
+            for ws_payload in pending_writes {
+                client_tx
+                .write_all(&ws_payload)
+                .await
+                .unwrap();
+            }
+
+            /* Reset Pending Writes */
+            pending_writes = vec![];
         }
     }
 }
 
-async fn handle_wsclient(mut client: TcpStream) {
+async fn handle_wsclient(mut client: TcpStream, proxy_address: String) {
     let mut buf: [u8; 32768] = [0; 32768];
-    let bits_read = client
-    .read(&mut buf)
-    .await
-    .unwrap();
+    let bits_read = client.read(&mut buf).await.unwrap();
 
     let handshake_request = String::from_utf8_lossy(&buf[..bits_read]);
     let handshake_request: Vec<&str> = handshake_request.split("\r\n").collect();
-    
+
     /* Debugging */
-    println!("Request: {:?}", handshake_request);
+    //println!("Request: {:?}", handshake_request);
 
     let handshake_request_version = parser::http::get_version(handshake_request.clone());
     let handshake_request_method = parser::http::get_method(handshake_request.clone());
@@ -262,23 +295,23 @@ async fn handle_wsclient(mut client: TcpStream) {
         /* This is a valid Websocket Handshake Request, Check WS Version Support */
         let websocket_key = parser::http::get_websocket_key(handshake_request.clone());
         let websocket_accept_key = parser::websocket::get_accept_key(websocket_key);
-        
+
         /* Generate Handshake Response */
-        let handshake_response = parser::http::response_from_headers([
-            "HTTP/1.1 101 Switching Protocols",
-            "Upgrade: websocket",
-            "Connection: Upgrade",
-            format!("Sec-WebSocket-Accept: {}", websocket_accept_key).as_str()
-        ].to_vec());
+        let handshake_response = parser::http::response_from_headers(
+            [
+                "HTTP/1.1 101 Switching Protocols",
+                "Upgrade: websocket",
+                "Connection: Upgrade",
+                format!("Sec-WebSocket-Accept: {}", websocket_accept_key).as_str(),
+            ]
+            .to_vec(),
+        );
 
         /* Send Response and Complete Handshake */
-        client
-        .write(handshake_response.as_bytes())
-        .await
-        .unwrap();
+        client.write(handshake_response.as_bytes()).await.unwrap();
 
         /* Handshake Response Sent, Proceed Further */
-        listen_websocket(client).await;
+        proxy_websocket(client, proxy_address).await;
     } else {
         /* Send 400 (Bad Request) */
     }
@@ -287,17 +320,23 @@ async fn handle_wsclient(mut client: TcpStream) {
 pub async fn create(tcp_address: String, proxy_address: String) -> Result<(), Box<dyn Error>> {
     match TcpListener::bind(tcp_address).await {
         Ok(listener) => {
-            println!("SpifyRFB Websocket Communications at {:?}\n", listener.local_addr().unwrap());
+            println!(
+                "SpifyRFB Websocket Communications at {:?}\n",
+                listener.local_addr().unwrap()
+            );
 
             loop {
+                /* Define Spawn Requirements */
                 let (client, _) = listener.accept().await?;
+                let proxyaddr = proxy_address.clone();
+
                 tokio::spawn(async move {
                     /* Init Handshake */
                     println!("Connection Established: {:?}", client);
-                    handle_wsclient(client).await;
+                    handle_wsclient(client, proxyaddr).await;
                 });
             }
-        },
+        }
         Err(err) => {
             println!("Websocket IP Address Binding Failed -> {}", err.to_string());
             Err(err.into())
