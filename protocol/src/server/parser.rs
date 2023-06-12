@@ -73,12 +73,12 @@ pub mod websocket {
 
     pub struct OPCODE;
     impl OPCODE {
-        pub const CONTINUATION_FRAME: u32 = 0x0;
-        pub const TEXT_FRAME: u32 = 0x1;
-        pub const BINARY_FRAME: u32 = 0x2;
-        pub const CONNECTION_CLOSE: u32 = 0x8;
-        pub const PING: u32 = 0x9;
-        pub const PONG: u32 = 0xA;
+        pub const CONTINUATION_FRAME: u8 = 0x0;
+        pub const TEXT_FRAME: u8 = 0x1;
+        pub const BINARY_FRAME: u8 = 0x2;
+        pub const CONNECTION_CLOSE: u8 = 0x8;
+        pub const PING: u8 = 0x9;
+        pub const PONG: u8 = 0xA;
     }
 
     pub fn get_accept_key(mut websocket_key: String) -> String {

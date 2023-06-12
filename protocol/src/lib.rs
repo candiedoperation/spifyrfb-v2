@@ -32,3 +32,9 @@ pub mod info {
         String::from("0.1.0")
     }
 }
+
+pub mod debug {
+    pub fn l1(out: String) {
+        println!("{}", out);
+    }
+}

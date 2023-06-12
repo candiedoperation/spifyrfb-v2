@@ -1,10 +1,12 @@
-use std::error::Error;
+use std::{error::Error, mem};
 use tokio::{net::{TcpListener, TcpStream}, io::{AsyncReadExt, AsyncWriteExt}};
-use crate::server::parser;
+use crate::{server::parser, debug};
+
+use super::parser::websocket::OPCODE;
 
 trait GetBits {
     fn get_bits_be(&self) -> Vec<bool>;
-    fn from_bits(bits: Vec<bool>) -> Self;
+    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self;
     fn get_bits_le(&self) -> Vec<bool> {
         let be_bits = self.get_bits_be();
         be_bits.into_iter().rev().collect()
@@ -13,19 +15,33 @@ trait GetBits {
 
 impl GetBits for u8 {
     fn get_bits_be(&self) -> Vec<bool> {
-        let bit_count = self.count_ones() + self.count_zeros();
-        let mut bits: Vec<bool> = Vec::with_capacity(bit_count as usize);
-        for index in 0..bit_count {
+        const BIT_COUNT: usize = mem::size_of::<u8>() * 8;
+        let mut bits: Vec<bool> = Vec::with_capacity(BIT_COUNT);
+        for index in 0..BIT_COUNT {
             bits.push((self >> index & 1) == 1);
         }
 
         return bits;
     }
 
-    fn from_bits(bits: Vec<bool>) -> u8 {
-        let mut integer: u8 = 0;
-        for index in 0..bits.len() {
-            if bits[index] == true {
+    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self {
+        let mut bits_added: Vec<bool> = vec![];
+        let sizeof = mem::size_of::<Self>() * 8;
+        let mut integer: Self = 0;
+
+        /* Add bit headers for bits less than size */
+        if bits.len() < sizeof {
+            bits_added = vec![false; sizeof - bits.len()]
+        }
+
+        bits_added.extend_from_slice(&bits[..]);
+        if is_le == true {
+            /* If input is Little Endian, Reverse the bits */
+            bits_added = bits_added.into_iter().rev().collect();
+        }
+
+        for index in 0..bits_added.len() {
+            if bits_added[index] == true {
                 integer = integer | (1 << index);
             }
         }
@@ -36,19 +52,33 @@ impl GetBits for u8 {
 
 impl GetBits for u16 {
     fn get_bits_be(&self) -> Vec<bool> {
-        let bit_count = self.count_ones() + self.count_zeros();
-        let mut bits: Vec<bool> = Vec::with_capacity(bit_count as usize);
-        for index in 0..bit_count {
+        const BIT_COUNT: usize = mem::size_of::<u16>() * 8;
+        let mut bits: Vec<bool> = Vec::with_capacity(BIT_COUNT);
+        for index in 0..BIT_COUNT {
             bits.push((self >> index & 1) == 1);
         }
 
         return bits;
     }
 
-    fn from_bits(bits: Vec<bool>) -> u16 {
-        let mut integer: u16 = 0;
-        for index in 0..bits.len() {
-            if bits[index] == true {
+    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self {
+        let mut bits_added: Vec<bool> = vec![];
+        let sizeof = mem::size_of::<Self>() * 8;
+        let mut integer: Self = 0;
+
+        /* Add bit headers for bits less than size */
+        if bits.len() < sizeof {
+            bits_added = vec![false; sizeof - bits.len()]
+        }
+
+        bits_added.extend_from_slice(&bits[..]);
+        if is_le == true {
+            /* If input is Little Endian, Reverse the bits */
+            bits_added = bits_added.into_iter().rev().collect();
+        }
+
+        for index in 0..bits_added.len() {
+            if bits_added[index] == true {
                 integer = integer | (1 << index);
             }
         }
@@ -59,42 +89,33 @@ impl GetBits for u16 {
 
 impl GetBits for u64 {
     fn get_bits_be(&self) -> Vec<bool> {
-        let bit_count = self.count_ones() + self.count_zeros();
-        let mut bits: Vec<bool> = Vec::with_capacity(bit_count as usize);
-        for index in 0..bit_count {
+        const BIT_COUNT: usize = mem::size_of::<u64>() * 8;
+        let mut bits: Vec<bool> = Vec::with_capacity(BIT_COUNT);
+        for index in 0..BIT_COUNT {
             bits.push((self >> index & 1) == 1);
         }
 
         return bits;
     }
 
-    fn from_bits(bits: Vec<bool>) -> u64 {
-        let mut integer: u64 = 0;
-        for index in 0..bits.len() {
-            if bits[index] == true {
-                integer = integer | (1 << index);
-            }
+    fn from_bits(bits: Vec<bool>, is_le: bool) -> Self {
+        let mut bits_added: Vec<bool> = vec![];
+        let sizeof = mem::size_of::<Self>() * 8;
+        let mut integer: Self = 0;
+
+        /* Add bit headers for bits less than size */
+        if bits.len() < sizeof {
+            bits_added = vec![false; sizeof - bits.len()]
         }
 
-        integer
-    }
-}
-
-impl GetBits for u128 {
-    fn get_bits_be(&self) -> Vec<bool> {
-        let bit_count = self.count_ones() + self.count_zeros();
-        let mut bits: Vec<bool> = Vec::with_capacity(bit_count as usize);
-        for index in 0..bit_count {
-            bits.push((self >> index & 1) == 1);
+        bits_added.extend_from_slice(&bits[..]);
+        if is_le == true {
+            /* If input is Little Endian, Reverse the bits */
+            bits_added = bits_added.into_iter().rev().collect();
         }
 
-        return bits;
-    }
-
-    fn from_bits(bits: Vec<bool>) -> u128 {
-        let mut integer: u128 = 0;
-        for index in 0..bits.len() {
-            if bits[index] == true {
+        for index in 0..bits_added.len() {
+            if bits_added[index] == true {
                 integer = integer | (1 << index);
             }
         }
@@ -106,6 +127,8 @@ impl GetBits for u128 {
 async fn listen_websocket(mut client: TcpStream) {
     /* Split Stream for simulatneous TX/RX */
     let (mut client_rx, mut client_tx) = client.split();
+    let mut fin_payload: Vec<u8> = vec![];
+    let mut fin_payload_opcode: u8 = 0;
 
     loop {
         /* Read Websocket Opcode */
@@ -117,21 +140,22 @@ async fn listen_websocket(mut client: TcpStream) {
                 return;
             },
             Ok(_) => {
+                /*
+                    We create slices using a range within brackets by specifying 
+                    [starting_index..ending_index], where starting_index is the 
+                    first position in the slice and ending_index is one more than 
+                    the last position in the slice.
+                */
+
                 /* Get Opcode */
-                let fin_flag = buf[0].get_bits_be()[0];
-                let mut opcode = vec![false; 4];
-                opcode.extend_from_slice(&buf[0].get_bits_be()[4..7]);
-                let opcode: u8 = u8::from_bits(opcode);
+                let fin_flag = buf[0].get_bits_le()[0];
+                let mut opcode: u8 = u8::from_bits(buf[0].get_bits_le()[4..8].to_vec(), true);
                 
                 /* Find Payload Hint */
                 let payload_length: u64;
                 let mask_key: Option<[u8; 4]>;
-                let mask_hint: bool = buf[1].get_bits_be()[0];
-
-                let mut payload_hint: Vec<bool> = vec![];
-                payload_hint.extend_from_slice(&buf[1].get_bits_be()[1..7].to_vec());
-                println!("L: {:?}", payload_hint.clone());
-                let payload_hint = u8::from_bits(payload_hint);
+                let mask_hint: bool = buf[1].get_bits_le()[0];
+                let payload_hint = u8::from_bits(buf[1].get_bits_le()[1..8].to_vec(), true);
 
                 if payload_hint < 126 {
                     /* Payload length is same as hint (if = or < 125) */
@@ -160,17 +184,53 @@ async fn listen_websocket(mut client: TcpStream) {
                     mask_key = Option::None;
                 }
 
-                println!("STATS: {}, {}", payload_length, fin_flag);
-
+                /* Read the Payload */
                 let mut payload: Vec<u8> = vec![0; payload_length as usize];
                 let payload_buffer = &mut payload[..];
                 client_rx.read_exact(payload_buffer).await.unwrap();
 
-                println!("PAYLOAD: {:?}", payload);
+                /* Decode the Payload, if mask was set */
+                if mask_key.is_some() {
+                    let payload_mask = mask_key.unwrap();
+                    let mut decoded_payload: Vec<u8> = Vec::with_capacity(payload.len());
 
+                    for index in 0..payload.len() {
+                        decoded_payload.push(
+                            payload[index] ^ payload_mask[index % 4]
+                        );
+                    }
+
+                    /* Update the Payload */
+                    payload = decoded_payload;
+                }
+
+                if fin_flag == false {
+                    /* Extend FIN Payload */
+                    if opcode != OPCODE::CONTINUATION_FRAME { fin_payload_opcode = opcode; }
+                    fin_payload.extend_from_slice(&payload[..]);
+
+                    /* Do not process the Payload */
+                    continue;
+                } else if fin_flag == true && opcode == OPCODE::CONTINUATION_FRAME  {
+                    fin_payload.extend_from_slice(&payload[..]);
+                    payload = fin_payload.clone();
+                    opcode = fin_payload_opcode;
+
+                    /* Clear FIN Payload for next FIN Message */
+                    fin_payload = vec![];
+                }
+
+                /* Process the Payload */
                 match opcode {
+                    OPCODE::TEXT_FRAME => {
+                        debug::l1(format!("PAYLOAD:\n{}", String::from_utf8_lossy(&payload[..])));
+                    },
+                    OPCODE::CONNECTION_CLOSE => {
+                        /* Websocket Connection Closed */
+                        debug::l1(format!("Websocket Connection Closed"));
+                    }
                     _ => {
-                        println!("Invalid OPCODE: {}", opcode);
+                        debug::l1(format!("Invalid OPCODE: {}", opcode));
                     }
                 }
             },
