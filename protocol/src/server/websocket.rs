@@ -127,6 +127,17 @@ async fn proxy_websocket(client: TcpStream, proxy_address: String) {
                     OPCODE::BINARY_FRAME => {
                         /* Write Payload to Remote Host */
                         remote.write_all(&payload[..]).await.unwrap();
+                    },
+                    OPCODE::PING => {
+                        /* Create PONG Frame */
+                        let frame = parser::websocket::create_frame(
+                            "Pong".as_bytes().to_vec(),
+                            OPCODE::PONG,
+                            false,
+                        );
+
+                        /* Push to pending writes */
+                        pending_writes.push(frame);
                     }
                     OPCODE::CONNECTION_CLOSE => {
                         let remote_shutdown = remote.shutdown().await;
