@@ -697,7 +697,7 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     }
 }
 
-pub async fn create(tcp_address: String, ws_proxy: Option<String>) -> Result<(), Box<dyn Error>> {
+pub async fn create(tcp_address: String, ws_proxy: Option<(String, bool)>) -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "windows")]
     {
         match win32::connect() {
@@ -754,9 +754,14 @@ pub async fn create(tcp_address: String, ws_proxy: Option<String>) -> Result<(),
                 let listener = tcplistener_result.unwrap();
                 println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
                 if ws_proxy.is_some() {
+                    /* Unwrap Proxy Parameters */
+                    let ws_proxy = ws_proxy.unwrap();
+                    let ws_tcp_address = ws_proxy.0;
+                    let ws_secure = ws_proxy.1;
+
                     let proxy_address = listener.local_addr().unwrap().to_string();
-                    tokio::spawn(async {
-                        websocket::create(ws_proxy.unwrap(), proxy_address).await.unwrap();
+                    tokio::spawn(async move {
+                        websocket::create(ws_tcp_address, proxy_address, ws_secure).await.unwrap();
                     });
                 }
 

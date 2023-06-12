@@ -16,9 +16,9 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+use spifyrfb_protocol::info;
 use std::env;
 use std::error::Error;
-use spifyrfb_protocol::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -27,20 +27,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut launch_ip: String = String::from("");
     let mut websocket_ip: String = String::from("");
+    let mut websocket_secure: bool = false;
 
     for arg in env::args_os() {
         if arg.to_string_lossy().starts_with("--ip=") {
             launch_ip = String::from(arg.to_string_lossy().replace("--ip=", "").trim());
         } else if arg.to_string_lossy().starts_with("--ws=") {
             websocket_ip = String::from(arg.to_string_lossy().replace("--ws=", "").trim());
+        } else if arg.to_string_lossy().starts_with("--ws-secure") {
+            websocket_secure = true;
         }
     }
 
     /* CREATE PROTOCOL SERVER WITH LAUNCH IP */
     spifyrfb_protocol::server::create(
         launch_ip,
-        if websocket_ip == "" { Option::None } else { Option::Some(websocket_ip) }
-    ).await.unwrap_or({});
-    
+        if websocket_ip == "" {
+            Option::None
+        } else {
+            Option::Some((websocket_ip, websocket_secure))
+        },
+    )
+    .await
+    .unwrap_or({});
+
     Ok(())
 }

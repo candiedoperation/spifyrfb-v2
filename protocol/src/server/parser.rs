@@ -204,6 +204,33 @@ pub mod http {
     }
 }
 
+pub mod tls {
+    use std::{fs, io};
+    use rustls::{Certificate, PrivateKey};
+    use rustls_pemfile::{certs, rsa_private_keys, pkcs8_private_keys};
+
+    pub fn load_certificates(pem_path: &str) -> Vec<Certificate> {
+        let certpem = fs::File::open(pem_path).unwrap();
+        let mut certreader = io::BufReader::new(certpem);
+        certs(&mut certreader).unwrap().into_iter().map(Certificate).collect()
+    }
+
+    pub fn load_privatekey(pem_path: &str) -> PrivateKey {
+        let pkeypem = fs::File::open(pem_path).unwrap();
+        let mut pkeyreader = io::BufReader::new(pkeypem);
+        let mut privatekey = rsa_private_keys(&mut pkeyreader).unwrap();
+
+        /* rsa_private_key() returns [] if key is pkcs8 */
+        if privatekey.len() == 0 {
+            let pkeypem = fs::File::open(pem_path).unwrap();
+            pkeyreader = io::BufReader::new(pkeypem);
+            privatekey = pkcs8_private_keys(&mut pkeyreader).unwrap();
+        }
+        
+        PrivateKey(privatekey[0].clone())   
+    }
+}
+
 pub mod websocket {
     use base64::{engine::general_purpose, Engine};
     use rand::Rng;

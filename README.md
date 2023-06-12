@@ -35,4 +35,4 @@ A Modern RFB Server implementation using Rust, written from scratch.
 |----------------------------|--------------|
 | TCP Sockets                | ✅           |
 | Websockets                 | ✅           |
-| Encrypted Websockets       |              |
+| Encrypted Websockets       | ✅           |

@@ -17,17 +17,64 @@
 */
 
 use crate::{debug, server::parser};
-use std::{error::Error, time::Duration};
+use std::{error::Error, time::Duration, sync::Arc, pin::Pin};
 use super::parser::{websocket::OPCODE, GetBits};
+use rustls::ServerConfig;
 use tokio::{
-    io::{self, AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncReadExt, AsyncWriteExt, AsyncRead, AsyncWrite},
     net::{TcpListener, TcpStream},
     time::timeout,
 };
+use tokio_rustls::{TlsAcceptor, server::TlsStream};
 
-async fn proxy_websocket(client: TcpStream, proxy_address: String) {
+enum WebsocketStream {
+    WS(TcpStream),
+    WSS(TlsStream<TcpStream>)
+}
+
+impl AsyncRead for WebsocketStream {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match &mut *self {
+            WebsocketStream::WS(stream) => { Pin::new(stream).poll_read(cx, buf) },
+            WebsocketStream::WSS(stream) => { Pin::new(stream).poll_read(cx, buf) },
+        }
+    }
+}
+
+impl AsyncWrite for WebsocketStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+        match &mut *self {
+            WebsocketStream::WS(stream) => { Pin::new(stream).poll_write(cx, buf) },
+            WebsocketStream::WSS(stream) => { Pin::new(stream).poll_write(cx, buf) },
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), std::io::Error>> {
+        match &mut *self {
+            WebsocketStream::WS(stream) => { Pin::new(stream).poll_flush(cx) },
+            WebsocketStream::WSS(stream) => { Pin::new(stream).poll_flush(cx) },
+        }
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), std::io::Error>> {
+        match &mut *self {
+            WebsocketStream::WS(stream) => { Pin::new(stream).poll_shutdown(cx) },
+            WebsocketStream::WSS(stream) => { Pin::new(stream).poll_shutdown(cx) },
+        }
+    }
+}
+
+async fn proxy_websocket(ws_stream: WebsocketStream, proxy_address: String) {
     /* Split Stream for simulatneous TX/RX */
-    let (mut client_rx, mut client_tx) = io::split(client);
+    let (mut client_rx, mut client_tx) = io::split(ws_stream);
     let mut pending_writes: Vec<Vec<u8>> = vec![];
     let mut fin_payload: Vec<u8> = vec![];
     let mut fin_payload_opcode: u8 = 0;
@@ -106,8 +153,8 @@ async fn proxy_websocket(client: TcpStream, proxy_address: String) {
                     /* Set Mask Key to None */
                     mask_key = Option::None;
 
-                    /* Disconnect with Client */
-                    let mut frame_payload = 1002_u16.to_be_bytes().to_vec();
+                    /* Initiate Disconnect, Policy Violation(1008) */
+                    let mut frame_payload = 1008_u16.to_be_bytes().to_vec();
                     frame_payload.extend_from_slice("Payload is not Masked".as_bytes());
 
                     /* Construct Frame */
@@ -236,15 +283,15 @@ async fn proxy_websocket(client: TcpStream, proxy_address: String) {
     }
 }
 
-async fn handle_wsclient(mut client: TcpStream, proxy_address: String) {
+async fn handle_wsclient(mut ws_stream: WebsocketStream, proxy_address: String) {
     let mut buf: [u8; 32768] = [0; 32768];
-    let bits_read = client.read(&mut buf).await.unwrap();
+    let bits_read = ws_stream.read(&mut buf).await.unwrap();
 
     let handshake_request = String::from_utf8_lossy(&buf[..bits_read]);
     let handshake_request: Vec<&str> = handshake_request.split("\r\n").collect();
 
     /* Debugging */
-    //println!("Request: {:?}", handshake_request);
+    println!("Request: {:?}", handshake_request);
 
     let handshake_request_version = parser::http::get_version(handshake_request.clone());
     let handshake_request_method = parser::http::get_method(handshake_request.clone());
@@ -265,16 +312,16 @@ async fn handle_wsclient(mut client: TcpStream, proxy_address: String) {
         );
 
         /* Send Response and Complete Handshake */
-        client.write(handshake_response.as_bytes()).await.unwrap();
+        ws_stream.write(handshake_response.as_bytes()).await.unwrap();
 
         /* Handshake Response Sent, Proceed Further */
-        proxy_websocket(client, proxy_address).await;
+        proxy_websocket(ws_stream, proxy_address).await;
     } else {
         /* Send 400 (Bad Request) */
     }
 }
 
-pub async fn create(tcp_address: String, proxy_address: String) -> Result<(), Box<dyn Error>> {
+pub async fn create(tcp_address: String, proxy_address: String, secure: bool) -> Result<(), Box<dyn Error>> {
     match TcpListener::bind(tcp_address).await {
         Ok(listener) => {
             println!(
@@ -282,15 +329,52 @@ pub async fn create(tcp_address: String, proxy_address: String) -> Result<(), Bo
                 listener.local_addr().unwrap()
             );
 
+            /* Define TLS Objects */
+            let mut tls_serverconfig: Option<ServerConfig> = Option::None;
+            let mut tls_acceptor: Option<TlsAcceptor> = Option::None;
+
+            if secure == true {
+                tls_serverconfig = Option::Some(
+                    ServerConfig::builder()
+                    .with_safe_defaults()
+                    .with_no_client_auth()
+                    .with_single_cert(
+                        parser::tls::load_certificates("ssl/cert.pem"),
+                        parser::tls::load_privatekey("ssl/key.pem")
+                    )
+                    .unwrap()
+                );
+
+                tls_acceptor = Option::Some(
+                    TlsAcceptor::from(Arc::new(tls_serverconfig.clone().unwrap()))
+                );
+            }
+
             loop {
                 /* Define Spawn Requirements */
-                let (client, _) = listener.accept().await?;
                 let proxyaddr = proxy_address.clone();
+                let (client, _) = listener.accept().await?;
+                let tls_acceptor = tls_acceptor.clone();
+                
+                let tls_config = tls_serverconfig.clone();
 
                 tokio::spawn(async move {
                     /* Init Handshake */
                     println!("Connection Established: {:?}", client);
-                    handle_wsclient(client, proxyaddr).await;
+
+                    let ws_stream: WebsocketStream;
+                    if tls_acceptor.is_some() {
+                        ws_stream = WebsocketStream::WSS(
+                            tls_acceptor.unwrap().accept(client).await.unwrap()
+                        );
+                    } else {
+                        ws_stream = WebsocketStream::WS(client);
+                    }
+
+                    handle_wsclient(
+                        ws_stream, 
+                        proxyaddr
+                    ).await;
                 });
             }
         }
