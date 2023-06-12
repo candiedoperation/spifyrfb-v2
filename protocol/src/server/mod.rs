@@ -216,7 +216,6 @@ async fn write_framebuffer_update_message(
                 .unwrap();
             },
             _ => {
-                println!("RAW");
                 client_tx
                 .write_all(framebuffer.encoded_pixels.as_slice())
                 .await

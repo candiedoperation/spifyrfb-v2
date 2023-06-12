@@ -46,7 +46,7 @@ pub fn get_pixel_data(framebuffer: FrameBuffer, session: String) -> FrameBufferR
 }
 
 fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
-    let bytes_per_cpixel: u16 = 3;
+    let bytes_per_cpixel: u16 = if framebuffer.bits_per_pixel >= 24 { 3 } else { (framebuffer.bits_per_pixel / 8) as u16 };
     const ZRLE_TILE_WIDTH: f32 = 64_f32;
     const ZRLE_TILE_HEIGHT: f32 = 64_f32;
 

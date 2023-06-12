@@ -330,7 +330,7 @@ pub async fn create(tcp_address: String, proxy_address: String, secure: bool) ->
             );
 
             /* Define TLS Objects */
-            let mut tls_serverconfig: Option<ServerConfig> = Option::None;
+            let tls_serverconfig: Option<ServerConfig>;
             let mut tls_acceptor: Option<TlsAcceptor> = Option::None;
 
             if secure == true {
@@ -355,8 +355,6 @@ pub async fn create(tcp_address: String, proxy_address: String, secure: bool) ->
                 let proxyaddr = proxy_address.clone();
                 let (client, _) = listener.accept().await?;
                 let tls_acceptor = tls_acceptor.clone();
-                
-                let tls_config = tls_serverconfig.clone();
 
                 tokio::spawn(async move {
                     /* Init Handshake */

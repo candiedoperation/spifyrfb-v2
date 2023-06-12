@@ -200,13 +200,14 @@ pub fn rectangle_framebuffer_update(
         pixel_data.push(255);
     }
 
+    let bits_per_pixel = if x11_screen.root_depth == 24 { 32 } else { x11_screen.root_depth };
     let mut framebuffer_rectangles: Vec<FrameBufferRectangle> = vec![];
     let mut framebuffer_struct = FrameBuffer {
         x_position: x_position as u16,
         y_position: y_position as u16,
         width,
         height,
-        bits_per_pixel: x11_screen.root_depth,
+        bits_per_pixel,
         raw_pixels: pixel_data,
         encoding: RFBEncodingType::RAW,
         encoded_pixels: vec![],

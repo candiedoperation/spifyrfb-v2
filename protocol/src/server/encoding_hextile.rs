@@ -40,20 +40,20 @@ pub fn get_pixel_data(framebuffer: FrameBuffer) -> FrameBufferRectangle {
     }
 }
 
-fn encode(hextile_data: FrameBuffer) -> Vec<u8> {
-    let bytes_per_pixel: u16 = 4;
+fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
+    let bytes_per_pixel: u16 = (framebuffer.bits_per_pixel / 8) as u16;
     const HEXTILE_WIDTH: f32 = 16_f32;
     const HEXTILE_HEIGHT: f32 = 16_f32;
 
     /* Divide FrameBuffer into Tiles of 64x64 pixels */
-    let h_tiles = (hextile_data.width as f32 / HEXTILE_WIDTH).ceil() as usize;
-    let v_tiles = (hextile_data.height as f32 / HEXTILE_HEIGHT).ceil() as usize;
+    let h_tiles = (framebuffer.width as f32 / HEXTILE_WIDTH).ceil() as usize;
+    let v_tiles = (framebuffer.height as f32 / HEXTILE_HEIGHT).ceil() as usize;
 
     let mut hextiles: Vec<Vec<u8>> = vec![Vec::new(); v_tiles * h_tiles];
     let hscan_lines: Vec<&[u8]>;
-    hscan_lines = hextile_data
+    hscan_lines = framebuffer
         .raw_pixels
-        .chunks_exact((hextile_data.width * bytes_per_pixel) as usize)
+        .chunks_exact((framebuffer.width * bytes_per_pixel) as usize)
         .collect();
 
     let mut vertical_tile = 0;
@@ -64,7 +64,6 @@ fn encode(hextile_data: FrameBuffer) -> Vec<u8> {
             .chunks((HEXTILE_WIDTH as u16 * bytes_per_pixel) as usize)
             .collect::<Vec<_>>()
         {
-            //if hscan_line_ctr == 0 { hextiles[current_tile].push(1_u8); }
             hextiles[current_tile].extend_from_slice(h_chunk);
             current_tile += 1;
         }
