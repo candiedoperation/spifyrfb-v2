@@ -34,7 +34,19 @@ pub mod info {
 }
 
 pub mod debug {
+    use std::time::{SystemTime, UNIX_EPOCH, Duration};
+
     pub fn l1(out: String) {
         println!("{}", out);
+    }
+
+    pub fn time_now() -> SystemTime {
+        SystemTime::now()
+    }
+
+    pub fn time_since_epoch() -> Duration {
+        time_now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
     }
 }

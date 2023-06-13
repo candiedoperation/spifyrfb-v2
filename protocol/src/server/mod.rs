@@ -224,6 +224,8 @@ async fn write_framebuffer_update_message(
             }
         }
     }
+
+    //debug::l1(format!("FBU Response Time: {:?}", debug::time_now()));
 }
 
 async fn process_clientserver_message(
@@ -266,7 +268,7 @@ async fn process_clientserver_message(
                         x11::rectangle_framebuffer_update(
                             &x11_server,
                             x11_screen.clone(),
-                            RFBEncodingType::RAW,
+                            RFBEncodingType::ZRLE,
                             0,
                             0,
                             x11_screen.width_in_pixels,
@@ -459,6 +461,7 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                         .await;
                     }
                     ClientToServerMessage::FRAME_BUFFER_UPDATE_REQUEST => {
+                        //debug::l1(format!("FBU Request Time: {:?}", debug::time_now()));
                         let mut buffer: [u8; 9] = [0; 9];
                         client_rx.read_exact(&mut buffer).await.unwrap();
                         process_clientserver_message(

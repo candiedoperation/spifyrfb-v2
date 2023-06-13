@@ -54,41 +54,46 @@ fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
     let h_tiles = (framebuffer.width as f32 / ZRLE_TILE_WIDTH).ceil() as usize;
     let v_tiles = (framebuffer.height as f32 / ZRLE_TILE_HEIGHT).ceil() as usize;
 
-    let mut zrle_tiles: Vec<Vec<u8>> = vec![Vec::new(); v_tiles * h_tiles];
+    let mut zrle_tiles: Vec<u8> = vec![];
     let hscan_lines: Vec<&[u8]>;
     hscan_lines = framebuffer.encoded_pixels.chunks_exact((framebuffer.width * bytes_per_cpixel) as usize).collect();
-    
-    let mut vertical_tile = 0;
-    let mut hscan_line_ctr = 0;
-    for hscan_line in hscan_lines {
-        let mut current_tile = vertical_tile * (h_tiles);
-        for h_chunk in hscan_line.chunks((ZRLE_TILE_WIDTH as u16 * bytes_per_cpixel) as usize).collect::<Vec<_>>() {
-            zrle_tiles[current_tile].extend_from_slice(h_chunk);
-            current_tile += 1;
+
+    for zrletile_ctr in 0..(v_tiles * h_tiles) {
+        let mut tile_pixels: Vec<u8> = Vec::with_capacity(
+            (ZRLE_TILE_WIDTH * ZRLE_TILE_HEIGHT) as usize
+             * bytes_per_cpixel as usize
+        );
+
+        let vertical_progress = ((zrletile_ctr as f32 / h_tiles as f32).floor()) as usize;
+        let horizontal_progress = zrletile_ctr % h_tiles;
+        let start = vertical_progress * ZRLE_TILE_HEIGHT as usize;
+        let end = 
+            if (start + ZRLE_TILE_HEIGHT as usize) > hscan_lines.len() { hscan_lines.len() } 
+            else { start + ZRLE_TILE_HEIGHT as usize };
+
+        for hscan_line_ctr in start..end {
+            let h_start = horizontal_progress * bytes_per_cpixel as usize * (ZRLE_TILE_WIDTH as usize);
+            let h_end = 
+            if (h_start + (ZRLE_TILE_HEIGHT as usize * bytes_per_cpixel as usize)) > hscan_lines[hscan_line_ctr].len() { hscan_lines[hscan_line_ctr].len() } 
+            else { h_start + (ZRLE_TILE_HEIGHT as usize * bytes_per_cpixel as usize) };
+
+            tile_pixels.extend_from_slice(&hscan_lines[hscan_line_ctr][
+                h_start..h_end
+            ]);
         }
 
-        if hscan_line_ctr == (ZRLE_TILE_HEIGHT as usize - 1) {
-            hscan_line_ctr = 0;
-            vertical_tile += 1;
-        } else {
-            hscan_line_ctr += 1;
-        }
-    }
-
-    let mut compressed_zrletiles: Vec<u8> = Vec::with_capacity(zrle_tiles.capacity());
-    for zrle_tile in zrle_tiles {
-        let solid_zrletile = solid_zrletile_color(zrle_tile.clone(), bytes_per_cpixel as usize);
+        let solid_zrletile = solid_zrletile_color(tile_pixels.clone(), bytes_per_cpixel as usize);
         if solid_zrletile.0 == true {
-            compressed_zrletiles.push(1_u8);
-            compressed_zrletiles.extend_from_slice(solid_zrletile.1.as_slice());
+            zrle_tiles.push(1_u8);
+            zrle_tiles.extend_from_slice(solid_zrletile.1.as_slice());
         } else {
-            compressed_zrletiles.push(0_u8);
-            compressed_zrletiles.extend_from_slice(zrle_tile.as_slice());
+            zrle_tiles.push(0_u8);
+            zrle_tiles.extend_from_slice(tile_pixels.as_slice());
         }
     }
 
     /* Send Compressed Tiles */
-    compressed_zrletiles
+    zrle_tiles
 }
 
 fn solid_zrletile_color(tile: Vec<u8>, bytes_per_pixel: usize) -> (bool, Vec<u8>) {
