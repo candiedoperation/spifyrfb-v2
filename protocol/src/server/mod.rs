@@ -316,8 +316,8 @@ async fn process_clientserver_message(
                             &x11_server,
                             x11_server.displays[0].clone(),
                             RFBEncodingType::ZRLE,
-                            x_position.try_into().unwrap(),
-                            y_position.try_into().unwrap(),
+                            x_position as i16,
+                            y_position as i16,
                             width,
                             height,
                             session

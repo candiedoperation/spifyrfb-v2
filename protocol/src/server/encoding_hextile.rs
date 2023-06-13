@@ -16,7 +16,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use super::{FrameBufferRectangle, FrameBuffer, RFBEncodingType};
+use super::{FrameBuffer, FrameBufferRectangle, RFBEncodingType};
 
 pub fn get_pixel_data(framebuffer: FrameBuffer) -> FrameBufferRectangle {
     let mut framebuffer_rectangle = FrameBufferRectangle {
@@ -45,61 +45,60 @@ fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
     const HEXTILE_WIDTH: f32 = 16_f32;
     const HEXTILE_HEIGHT: f32 = 16_f32;
 
-    /* Divide FrameBuffer into Tiles of 64x64 pixels */
+    /* Divide FrameBuffer into Tiles of 16x16 pixels */
     let h_tiles = (framebuffer.width as f32 / HEXTILE_WIDTH).ceil() as usize;
     let v_tiles = (framebuffer.height as f32 / HEXTILE_HEIGHT).ceil() as usize;
 
-    let mut hextiles: Vec<Vec<u8>> = vec![Vec::new(); v_tiles * h_tiles];
+    let mut hextiles: Vec<u8> = vec![];
     let hscan_lines: Vec<&[u8]>;
     hscan_lines = framebuffer
         .raw_pixels
         .chunks_exact((framebuffer.width * bytes_per_pixel) as usize)
         .collect();
 
-    let mut vertical_tile = 0;
-    let mut hscan_line_ctr = 0;
-    for hscan_line in hscan_lines {
-        let mut current_tile = vertical_tile * (h_tiles);
-        for h_chunk in hscan_line
-            .chunks((HEXTILE_WIDTH as u16 * bytes_per_pixel) as usize)
-            .collect::<Vec<_>>()
-        {
-            hextiles[current_tile].extend_from_slice(h_chunk);
-            current_tile += 1;
-        }
-
-        if hscan_line_ctr == (HEXTILE_HEIGHT as usize - 1) {
-            hscan_line_ctr = 0;
-            vertical_tile += 1;
-        } else {
-            hscan_line_ctr += 1;
-        }
-    }
-
-    let mut compressed_hextiles: Vec<u8> = Vec::with_capacity(hextiles.capacity());
     let mut solid_previous_tile: (bool, Vec<u8>) = (false, Vec::with_capacity(1));
+    for hextile_ctr in 0..(v_tiles * h_tiles) {
+        let mut tile_pixels: Vec<u8> = Vec::with_capacity(
+            (HEXTILE_WIDTH * HEXTILE_HEIGHT) as usize 
+            * bytes_per_pixel as usize,
+        );
 
-    for hextile in hextiles {
-        let solid_hextile = solid_hextile_color(hextile.clone(), bytes_per_pixel as usize);
+        let vertical_progress = ((hextile_ctr as f32 / h_tiles as f32).floor()) as usize;
+        let horizontal_progress = hextile_ctr % h_tiles;
+        let start = vertical_progress * HEXTILE_HEIGHT as usize;
+        let end = 
+            if (start + HEXTILE_HEIGHT as usize) > hscan_lines.len() { hscan_lines.len() } 
+            else { start + HEXTILE_HEIGHT as usize };
+
+        for hscan_line_ctr in start..end {
+            let h_start = horizontal_progress * bytes_per_pixel as usize * (HEXTILE_WIDTH as usize);
+            let h_end = 
+                if (h_start + (HEXTILE_HEIGHT as usize * bytes_per_pixel as usize)) > hscan_lines[hscan_line_ctr].len() { hscan_lines[hscan_line_ctr].len() } 
+                else { h_start + (HEXTILE_HEIGHT as usize * bytes_per_pixel as usize) };
+
+            tile_pixels.extend_from_slice(&hscan_lines[hscan_line_ctr][h_start..h_end]);
+        }
+
+        let solid_hextile = solid_hextile_color(tile_pixels.clone(), bytes_per_pixel as usize);
         if solid_hextile.0 == true {
             if solid_hextile.1 != solid_previous_tile.1 {
-                compressed_hextiles.push(2_u8);
-                compressed_hextiles.extend_from_slice(solid_hextile.1.as_slice());
+                hextiles.push(2_u8);
+                hextiles.extend_from_slice(solid_hextile.1.as_slice());
             } else {
                 /* Set No bits, color same as previous tile */
-                compressed_hextiles.push(0_u8);
+                hextiles.push(0_u8);
             }
         } else {
-            compressed_hextiles.push(1_u8);
-            compressed_hextiles.extend_from_slice(hextile.as_slice());
+            hextiles.push(1_u8);
+            hextiles.extend_from_slice(tile_pixels.as_slice());
         }
 
         /* Update Previous Hextile (for Solid Color) */
         solid_previous_tile = solid_hextile.clone();
     }
 
-    /* Send Compressed Tiles */
-    compressed_hextiles
+    /* Send Hextiles */
+    hextiles
 }
 
 fn solid_hextile_color(tile: Vec<u8>, bytes_per_pixel: usize) -> (bool, Vec<u8>) {
