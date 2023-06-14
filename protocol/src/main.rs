@@ -17,6 +17,7 @@
 */
 
 use spifyrfb_protocol::info;
+use spifyrfb_protocol::server::{RFBAuthentication, VNCAuth};
 use std::env;
 use std::error::Error;
 
@@ -28,6 +29,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut launch_ip: String = String::from("");
     let mut websocket_ip: String = String::from("");
     let mut websocket_secure: bool = false;
+    let mut authentication: Option<RFBAuthentication> = Option::None;
 
     for arg in env::args_os() {
         if arg.to_string_lossy().starts_with("--ip=") {
@@ -36,6 +38,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             websocket_ip = String::from(arg.to_string_lossy().replace("--ws=", "").trim());
         } else if arg.to_string_lossy().starts_with("--ws-secure") {
             websocket_secure = true;
+        } else if arg.to_string_lossy().starts_with("--vnc-auth=") {
+            let security_key = String::from(arg.to_string_lossy().replace("--vnc-auth=", ""));
+            authentication = Option::Some(RFBAuthentication::Vnc(VNCAuth {
+                security_key: security_key.as_bytes()[0..8].try_into().unwrap()
+            }));
         }
     }
 
@@ -47,6 +54,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         } else {
             Option::Some((websocket_ip, websocket_secure))
         },
+        authentication
     )
     .await
     .unwrap_or({});

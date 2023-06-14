@@ -14,7 +14,7 @@ A Modern RFB Server implementation using Rust, written from scratch.
 |Name               |Number      | SpifyRFB Support |
 |-------------------|------------|--------------|
 |None               |          1 |           ✅ |
-|VNC Authentication |          2 |              |
+|VNC Authentication |          2 |           ✅ |
 
 ### Encodings (RFB Protocol)
 

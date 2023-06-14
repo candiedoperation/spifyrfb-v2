@@ -24,7 +24,7 @@ pub mod session;
 pub mod websocket;
 pub mod parser;
 
-use crate::{server::session::SpifySession};
+use crate::server::{session::SpifySession, parser::GetBits};
 
 #[cfg(target_os = "windows")]
 use crate::win32;
@@ -33,6 +33,7 @@ use crate::win32;
 use crate::{x11, debug};
 
 use std::{error::Error, sync::Arc};
+use des::{Des, cipher::{KeyInit, generic_array::GenericArray, typenum, BlockDecrypt}};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -62,6 +63,16 @@ impl ServerToClientMessage {
 struct RFBError {
     reason_length: u32,
     reason_string: String,
+}
+
+#[derive(Clone)]
+pub struct VNCAuth {
+    pub security_key: [u8; 8]
+}
+
+#[derive(Clone)]
+pub enum RFBAuthentication {
+    Vnc(VNCAuth)
 }
 
 #[derive(Debug)]
@@ -142,7 +153,7 @@ pub enum WindowManager {
 struct RFBServer {
     protocol_version: [u8; 12],
     supported_security_types_length: u8,
-    supported_security_types: [u8; 2],
+    supported_security_types: Vec<u8>,
 }
 
 impl RFBServer {
@@ -150,7 +161,7 @@ impl RFBServer {
         RFBServer {
             protocol_version: String::from("RFB 003.008\n").as_bytes().try_into().unwrap(),
             supported_security_types_length: 1,
-            supported_security_types: [1, 2], /* SECURITY TYPE 0 IS INVALID */
+            supported_security_types: vec![1], /* SECURITY TYPE 0 IS INVALID */
         }
     }
 }
@@ -625,6 +636,7 @@ async fn init_securityresult_handshake(
     mut client: TcpStream,
     security_type: u8,
     wm: Arc<WindowManager>,
+    auth: Option<RFBAuthentication>
 ) {
     match security_type {
         0 | 3.. => {
@@ -643,13 +655,73 @@ async fn init_securityresult_handshake(
             client.write_u32(0).await.unwrap_or(());
             init_clientinit_handshake(client, wm).await;
         }
-        2 => { /* HANDLE AUTHENTICATION TYPE VNC */ }
+        2 => {
+            /* HANDLE VNC AUTHENTICATION, Get Password */
+            let vnc_key: [u8; 8];
+            match auth.unwrap() {
+                RFBAuthentication::Vnc(key) => vnc_key = key.security_key,
+                _ => {
+                    /* Streamline this in Future */
+                    vnc_key = [0; 8];
+                }
+            }
+
+            /*
+                THIS IS NOT A PART OF THE RFB PROTOCOL SPECIFICATION
+                VNC Authentication reverses the order of bits
+                Know more at https://catonmat.net/curious-case-of-des-algorithm
+            */
+
+            let mut vnckey_le: [u8; 8] = [0; 8];
+            for index in 0..vnc_key.len() {
+                vnckey_le[index] = u8::from_bits(vnc_key[index].get_bits_le(), false);
+            }
+
+            /* Create DES Encryption Object */
+            let des = Des::new_from_slice(&vnckey_le);
+            let des = des.unwrap();
+
+            /* Auth Challenge Key */
+            let challenge = parser::security::vnc_auth_challenge();
+            client.write_u128(challenge).await.unwrap();
+
+            /* Read Encrypted Key from Client */
+            let mut challenge_buf: [u8; 16] = [0; 16];
+            client.read_exact(&mut challenge_buf).await.unwrap();
+
+            /* Decrypt Client Challenge */
+            let mut decrypted_challenge: Vec<GenericArray<u8, typenum::U8>> = vec![
+                GenericArray::clone_from_slice(&challenge_buf[0..8]),
+                GenericArray::clone_from_slice(&challenge_buf[8..16])
+            ];
+
+            /* Call Decryptor and Verify */
+            des.decrypt_blocks(&mut decrypted_challenge);
+            if challenge.to_be_bytes().eq(decrypted_challenge.concat().as_slice()) {
+                /* Security Result Message: Ok(0) */
+                client.write_u32(0).await.unwrap_or(());
+                init_clientinit_handshake(client, wm).await;
+            } else {
+                /* Security Result Message: Failed(1) */
+                client.write_u32(1).await.unwrap_or(());
+
+                /* Failure Reason for RFB Version 3.8 */
+                let rfb_error = create_rfb_error(String::from("Password is Incorrect"));
+                client.write_u32(rfb_error.reason_length).await.unwrap_or(());
+                client.write(rfb_error.reason_string.as_bytes()).await.unwrap_or(0);
+            }
+        }
     }
 }
 
-async fn init_authentication_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
+async fn init_authentication_handshake(mut client: TcpStream, wm: Arc<WindowManager>, auth: Option<RFBAuthentication>) {
     /* INITIATE SECURITY HANDSHAKE, VNC_SERVER CONSTANTS */
-    let rfb_server = RFBServer::init();
+    let mut rfb_server = RFBServer::init();
+    if auth.is_some() {
+        /* Fix this in future */
+        rfb_server.supported_security_types = vec![2];
+        rfb_server.supported_security_types_length = 1;
+    }
 
     /* SEND AVAILABLE SECURITY METHODS */
     client
@@ -657,20 +729,20 @@ async fn init_authentication_handshake(mut client: TcpStream, wm: Arc<WindowMana
         .await
         .unwrap_or(());
     client
-        .write_u8(rfb_server.supported_security_types[0])
+        .write_all(rfb_server.supported_security_types.as_slice())
         .await
         .unwrap_or(());
 
     /* READ CLIENT RESPONSE */
     match client.read_u8().await {
-        Ok(selected_type) => init_securityresult_handshake(client, selected_type, wm).await,
+        Ok(selected_type) => init_securityresult_handshake(client, selected_type, wm, auth).await,
         Err(_) => {
             client.shutdown().await.unwrap_or(());
         }
     }
 }
 
-async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
+async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>, auth: Option<RFBAuthentication>) {
     let rfb_server = RFBServer::init();
     let mut buf: [u8; 12] = [0; 12];
     client
@@ -681,7 +753,7 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
         Ok(protocol_index) => {
             if &buf[0..protocol_index] == b"RFB 003.008\n" {
                 println!("RFB Client agreed on V3.8");
-                init_authentication_handshake(client, wm).await;
+                init_authentication_handshake(client, wm, auth).await;
             } else {
                 let rfb_error = create_rfb_error(String::from("Version not Supported"));
                 client
@@ -700,7 +772,7 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     }
 }
 
-pub async fn create(tcp_address: String, ws_proxy: Option<(String, bool)>) -> Result<(), Box<dyn Error>> {
+pub async fn create(tcp_address: String, ws_proxy: Option<(String, bool)>, auth: Option<RFBAuthentication>) -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "windows")]
     {
         let win32_connection = win32::connect();
@@ -727,6 +799,7 @@ pub async fn create(tcp_address: String, ws_proxy: Option<(String, bool)>) -> Re
                 loop {
                     let (client, _) = listener.accept().await?;
                     let wm = Arc::clone(&wm_arc);
+                    let auth_clone = auth.clone();
                     tokio::spawn(async move {
                         // Handle The Client
                         session::new(client.peer_addr().unwrap().to_string(), SpifySession {
@@ -735,7 +808,7 @@ pub async fn create(tcp_address: String, ws_proxy: Option<(String, bool)>) -> Re
                         
                         /* Init Handshake */
                         println!("Connection Established: {:?}", client);
-                        init_handshake(client, wm).await;
+                        init_handshake(client, wm, auth_clone).await;
                     });
                 }     
             } else {
@@ -778,6 +851,7 @@ pub async fn create(tcp_address: String, ws_proxy: Option<(String, bool)>) -> Re
                 loop {
                     let (client, _) = listener.accept().await?;
                     let wm = Arc::clone(&wm_arc);
+                    let auth_clone = auth.clone();
                     tokio::spawn(async move {
                         // Handle The Client
                         session::new(client.peer_addr().unwrap().to_string(), SpifySession {
@@ -786,7 +860,7 @@ pub async fn create(tcp_address: String, ws_proxy: Option<(String, bool)>) -> Re
                         
                         /* Init Handshake */
                         println!("Connection Established: {:?}", client);
-                        init_handshake(client, wm).await;
+                        init_handshake(client, wm, auth_clone).await;
                     });
                 }                
             } else {

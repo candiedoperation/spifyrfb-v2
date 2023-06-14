@@ -337,7 +337,7 @@ pub mod websocket {
 
             mask_byte.extend_from_slice(&payload_hint.get_bits_le()[1..8]);
             extended_payload.extend_from_slice(&payload_len.to_be_bytes());
-        } else { /* USE FIN, TODO in Future */ }
+        }
 
         websocket_frame.push(u8::from_bits(fin_byte, true));
         websocket_frame.push(u8::from_bits(mask_byte, true));
@@ -357,5 +357,14 @@ pub mod websocket {
 
         /* Return Created Frame */
         return websocket_frame;
+    }
+}
+
+pub mod security {
+    use rand::{thread_rng, Rng};
+
+    pub fn vnc_auth_challenge() -> u128 {
+        let mut rand_rng = thread_rng();
+        rand_rng.gen::<u128>()
     }
 }
