@@ -25,7 +25,7 @@ pub mod websocket;
 pub mod parser;
 pub mod ipc_client;
 
-use crate::server::{session::SpifySession, parser::GetBits};
+use crate::server::{session::SpifySession, parser::GetBits, websocket::WSCreateOptions};
 
 #[cfg(target_os = "windows")]
 use crate::win32;
@@ -33,7 +33,7 @@ use crate::win32;
 #[cfg(target_os = "linux")]
 use crate::{x11, debug};
 
-use std::{error::Error, sync::Arc};
+use std::{error::Error, sync::Arc, process};
 use des::{Des, cipher::{KeyInit, generic_array::GenericArray, typenum, BlockDecrypt}};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -42,6 +42,13 @@ use tokio::{
         TcpListener, TcpStream,
     },
 };
+
+pub struct CreateOptions {
+    pub ip_address: String, 
+    pub ws_proxy: Option<(String, bool)>, 
+    pub auth: Option<RFBAuthentication>,
+    pub spify_daemon: bool
+}
 
 struct ClientToServerMessage;
 impl ClientToServerMessage {
@@ -773,34 +780,54 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>, auth: Opt
     }
 }
 
-pub async fn create(tcp_address: String, ws_proxy: Option<(String, bool)>, auth: Option<RFBAuthentication>) -> Result<(), Box<dyn Error>> {
+pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "windows")]
     {
         let win32_connection = win32::connect();
         if win32_connection.is_ok() {
             /* Define Objects */
             let wm_arc = win32_connection.unwrap();
-            let tcplistener_result = TcpListener::bind(tcp_address).await;
+            let tcplistener_result = TcpListener::bind(options.ip_address).await;
 
             if tcplistener_result.is_ok() {
                 let listener = tcplistener_result.unwrap();
-                println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
-                if ws_proxy.is_some() {
+                let tcp_address = listener.local_addr().unwrap();
+                println!("SpifyRFB is accepting connections on {:?}\n", tcp_address);
+                
+                if options.spify_daemon {
+                    /* Send IP Address Update to Daemon */
+                    ipc_client::send_hello(
+                        format!("{}\r\n{}", process::id().to_string(), tcp_address)
+                    ).await;
+
+                    ipc_client::send_ip_update(
+                        format!("tcp\r\n{}", tcp_address)
+                    ).await;
+                }
+                
+                if options.ws_proxy.is_some() {
                     /* Unwrap Proxy Parameters */
-                    let ws_proxy = ws_proxy.unwrap();
+                    let ws_proxy = options.ws_proxy.unwrap();
                     let ws_tcp_address = ws_proxy.0;
                     let ws_secure = ws_proxy.1;
 
                     let proxy_address = listener.local_addr().unwrap().to_string();
                     tokio::spawn(async move {
-                        websocket::create(ws_tcp_address, proxy_address, ws_secure).await.unwrap();
+                        websocket::create(
+                            WSCreateOptions {
+                                tcp_address: ws_tcp_address,
+                                proxy_address,
+                                secure: ws_secure,
+                                spify_daemon: options.spify_daemon,
+                            }
+                        ).await.unwrap();
                     });
                 }
 
                 loop {
                     let (client, _) = listener.accept().await?;
                     let wm = Arc::clone(&wm_arc);
-                    let auth_clone = auth.clone();
+                    let auth_clone = options.auth.clone();
                     tokio::spawn(async move {
                         // Handle The Client
                         session::new(client.peer_addr().unwrap().to_string(), SpifySession {

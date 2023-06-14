@@ -18,12 +18,10 @@
 
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::mem;
 use std::sync::RwLock;
 
-use once_cell::unsync::Lazy;
+use once_cell::sync::Lazy;
 use windows::core as Win32_Core;
 use windows::Win32::Security as Win32_Security;
 use windows::Win32::Foundation as Win32_Foundation;
@@ -34,6 +32,8 @@ use windows::Win32::System::Diagnostics::ToolHelp as Win32_ToolHelp;
 use windows::Win32::UI::WindowsAndMessaging as Win32_WindowsAndMessaging;
 
 use crate::ipc_server;
+use crate::ipc_server::IpcEvent;
+use crate::ipc_server::event;
 
 struct SpifyRFBService;
 impl SpifyRFBService {
@@ -42,17 +42,14 @@ impl SpifyRFBService {
     const SERVICE_CONTROLS: u32 = Win32_Services::SERVICE_ACCEPT_NETBINDCHANGE | Win32_Services::SERVICE_ACCEPT_STOP | Win32_Services::SERVICE_ACCEPT_SESSIONCHANGE;
 }
 
-#[derive(Clone, Copy)]
-struct SpifyRFBProtocolInstance {
-    process_handle: Win32_Foundation::HANDLE,
-    thread_handle: Win32_Foundation::HANDLE
-}
-
+#[derive(Clone)]
 struct SpifyRFBSpawnParameters {
     ip: String,
     ws: String,
     ws_secure: bool,
-    vnc_authentication: String
+    vnc_authentication: String,
+    wts_sessionid: u32,
+    processinfo: Win32_Threading::PROCESS_INFORMATION
 }
 
 trait ToU16Vec {
@@ -69,14 +66,17 @@ impl ToU16Vec for String {
 
 /* STATICS FOR PROCESS TRACKING */
 static mut SERVICE_HANDLER: Win32_Services::SERVICE_STATUS_HANDLE = Win32_Services::SERVICE_STATUS_HANDLE(0);
-static mut ACTIVE_SPAWNS: Lazy<HashMap<String, SpifyRFBProtocolInstance>> = Lazy::new(|| { HashMap::new() });
-static mut WTS_SESSIONS: Lazy<RwLock<HashMap<u32, SpifyRFBSpawnParameters>>> = Lazy::new(|| { RwLock::new(HashMap::new()) } );
+static WTS_SESSIONS: Lazy<RwLock<HashMap<u32, SpifyRFBSpawnParameters>>> = Lazy::new(|| { RwLock::new(HashMap::new()) } );
+static DAEMON_LISTENIP: Lazy<String> = Lazy::new(|| { String::from("127.0.0.1:39281") });
 
 pub fn create() {
     unsafe {
+        /* Register for IPC Communication Events */
+        //event::register(IpcEvent::HELLO, process_hello);
+
         /* Create IPC Server Instance */
         tokio::spawn(async {
-            ipc_server::create("127.0.0.1:8082".to_string())
+            ipc_server::create(DAEMON_LISTENIP.to_string())
                 .await.unwrap();
         });
 
@@ -89,6 +89,19 @@ pub fn create() {
         /* DISPATCH THE SERVICE */
         Win32_Services::StartServiceCtrlDispatcherW(&service_start_table);
     }
+}
+
+fn process_hello(data: String) {
+    let data: Vec<&str> = data.split("\r\n").collect();
+    let pid: u32 = data[0].parse().unwrap();
+    let tcp_address = data[1];
+
+    let mut wts_session_lock = WTS_SESSIONS.write().unwrap();
+    let mut spawnparameters = wts_session_lock.get(&pid).unwrap().clone();
+    spawnparameters.ip = tcp_address.to_string();
+
+    /* Update WTS Session */
+    wts_session_lock.insert(pid, spawnparameters);    
 }
 
 unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core::PWSTR) {
@@ -125,7 +138,6 @@ unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core:
 
 
 unsafe extern "system" fn event_handler(control: u32, control_event: u32, control_data: *mut c_void, _control_context: *mut c_void) -> u32 {
-    let mut output_file = OpenOptions::new().append(true).write(true).open("C:\\spifyresult.txt").unwrap();
     match control {
         Win32_Services::SERVICE_CONTROL_STOP => {
             let mut service_status = Win32_Services::SERVICE_STATUS {
@@ -140,18 +152,13 @@ unsafe extern "system" fn event_handler(control: u32, control_event: u32, contro
 
             /* UPDATE FUTURE STATUS HANDLER AND RUNNING STATUS WITH Win32 SERVICES */
             Win32_Services::SetServiceStatus(SERVICE_HANDLER, &service_status);
-            
-            /* STOP SPAWNED THREADS */
-            let spawned_protocols = ACTIVE_SPAWNS.to_owned().into_values().collect::<Vec<SpifyRFBProtocolInstance>>();
-            for protocol_instance in spawned_protocols {
-                /* USE TCP BASED IPC IN FUTURE TO EXIT CHILD */
-                Win32_Threading::TerminateProcess(
-                    protocol_instance.process_handle, 
-                    0
-                );
 
-                Win32_Foundation::CloseHandle(protocol_instance.process_handle);
-                Win32_Foundation::CloseHandle(protocol_instance.thread_handle);
+            let wts_sessions = WTS_SESSIONS.read().unwrap();
+            for wts_sessionkey in wts_sessions.keys() {
+                /* IPC Closes Processes when spawned with the Daemon Flag */
+                let wts_session = wts_sessions.get(wts_sessionkey).unwrap();
+                Win32_Foundation::CloseHandle(wts_session.processinfo.hProcess);
+                Win32_Foundation::CloseHandle(wts_session.processinfo.hThread);
             }
 
             /* SET STOP STATUS AND EXIT GRACEFULLY */
@@ -165,14 +172,19 @@ unsafe extern "system" fn event_handler(control: u32, control_event: u32, contro
                 *(control_data as *mut Win32_RemoteDesktop::WTSSESSION_NOTIFICATION);
             
             match control_event {
-                /* Use Ports 10000 and Above, the free ones */
                 Win32_WindowsAndMessaging::WTS_SESSION_LOGON => {
-                    let mut wts_seesion_lock = WTS_SESSIONS.write().unwrap();
-                    wts_seesion_lock.insert(wts_session.dwSessionId, SpifyRFBSpawnParameters {
-                        ip: todo!(),
-                        ws: todo!(),
-                        ws_secure: todo!(),
-                        vnc_authentication: todo!(),
+                    /* Create Spify Protocol Instance, Get ProcessInfo */
+                    let processinfo = start_app();
+
+                    /* Release Lock and Update WTS Sessions */
+                    let mut wts_session_lock = WTS_SESSIONS.write().unwrap();
+                    wts_session_lock.insert(processinfo.dwProcessId, SpifyRFBSpawnParameters {
+                        ip: String::from(""),
+                        ws: String::from(""),
+                        ws_secure: false,
+                        vnc_authentication: String::from(""),
+                        wts_sessionid: wts_session.dwSessionId,
+                        processinfo,
                     });
 
                     /* Return No Errors */
@@ -190,7 +202,7 @@ unsafe extern "system" fn event_handler(control: u32, control_event: u32, contro
     }
 }
 
-fn start_app() {
+fn start_app() -> Win32_Threading::PROCESS_INFORMATION{
     unsafe {
         /* GET PROCESS ID OF winlogon.exe */
         let snapshot_handle = 
@@ -239,8 +251,8 @@ fn start_app() {
         let mut lp_desktop = String::from(r"winsta0\default").encode_utf16().collect::<Vec<_>>(); lp_desktop.push(0);
         startup_info.lpDesktop = Win32_Core::PWSTR::from_raw(lp_desktop.as_mut_ptr());
 
-        let ip_address = "127.0.0.1:8080";
-        let app_path = "spifyrfb-protocol.exe --ip=".to_owned() + ip_address + "\0";
+        /* Create App Path String */
+        let app_path = format!("spifyrfb-protocol.exe --ip=0.0.0.0:0 --spify-daemon={}\0", DAEMON_LISTENIP.to_string());
 
         /* CALL CREATEPROCESSASUSERW */
         Win32_Threading::CreateProcessAsUserW(
@@ -257,10 +269,6 @@ fn start_app() {
             &mut proc_info
         );
 
-        /* ADD CREATED PROCESS/THREAD HANDLE TO GLOBAL VECTOR */
-        ACTIVE_SPAWNS.insert(String::from(ip_address), SpifyRFBProtocolInstance { 
-            process_handle: proc_info.hProcess, 
-            thread_handle: proc_info.hThread
-        });
+        return proc_info;
     }
 }

@@ -16,7 +16,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{debug, server::parser};
+use crate::{debug, server::{parser, ipc_client}};
 use std::{error::Error, time::Duration, sync::Arc, pin::Pin};
 use super::parser::{websocket::OPCODE, GetBits};
 use rustls::ServerConfig;
@@ -26,6 +26,13 @@ use tokio::{
     time::timeout,
 };
 use tokio_rustls::{TlsAcceptor, server::TlsStream};
+
+pub struct WSCreateOptions {
+    pub(crate) tcp_address: String, 
+    pub(crate) proxy_address: String, 
+    pub(crate) secure: bool,
+    pub(crate) spify_daemon: bool
+}
 
 enum WebsocketStream {
     WS(TcpStream),
@@ -356,19 +363,28 @@ async fn handle_wsclient(mut ws_stream: WebsocketStream, proxy_address: String) 
     }
 }
 
-pub async fn create(tcp_address: String, proxy_address: String, secure: bool) -> Result<(), Box<dyn Error>> {
-    match TcpListener::bind(tcp_address).await {
+pub async fn create(options: WSCreateOptions) -> Result<(), Box<dyn Error>> {
+    match TcpListener::bind(options.tcp_address).await {
         Ok(listener) => {
-            println!(
-                "SpifyRFB Websocket Communications at {:?}\n",
-                listener.local_addr().unwrap()
-            );
+            let ws_address = listener.local_addr().unwrap();
+            println!("SpifyRFB Websocket Communications at {:?}\n", ws_address);
+
+            if options.spify_daemon {
+                /* Send IP Address Update to Daemon */
+                ipc_client::send_ip_update(
+                    format!(
+                        "ws{}\r\n{}", 
+                        if options.secure == true { "s" } else { "" }, 
+                        ws_address
+                    )
+                ).await;
+            }
 
             /* Define TLS Objects */
             let tls_serverconfig: Option<ServerConfig>;
             let mut tls_acceptor: Option<TlsAcceptor> = Option::None;
 
-            if secure == true {
+            if options.secure == true {
                 tls_serverconfig = Option::Some(
                     ServerConfig::builder()
                     .with_safe_defaults()
@@ -387,7 +403,7 @@ pub async fn create(tcp_address: String, proxy_address: String, secure: bool) ->
 
             loop {
                 /* Define Spawn Requirements */
-                let proxyaddr = proxy_address.clone();
+                let proxyaddr = options.proxy_address.clone();
                 let (client, _) = listener.accept().await?;
                 let tls_acceptor = tls_acceptor.clone();
 

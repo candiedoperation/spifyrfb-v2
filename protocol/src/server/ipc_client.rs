@@ -1,13 +1,13 @@
-use std::{error::Error, time::{Duration, SystemTime}, thread, process};
+use std::{error::Error, time::Duration, process};
 use once_cell::sync::Lazy;
 use tokio::{net::TcpStream, io::{self, AsyncReadExt, AsyncWriteExt}, time::timeout, sync::RwLock};
 
 struct OPCODE;
 impl OPCODE {
+    const HELLO: u8 = 0;
     const PING: u8 = 1;
     const PONG: u8 = 2;
     const IP_UPDATE: u8 = 3;
-    const SHUTDOWN: u8 = 4;
 }
 
 static PENDING_WRITES: Lazy<RwLock<Vec<Vec<u8>>>> 
@@ -25,6 +25,20 @@ fn construct_payload(opcode: u8, payload: &str) -> Vec<u8> {
     packet.push(payload.len() as u8);
     packet.extend_from_slice(payload);
     return packet;
+}
+
+pub async fn send_ip_update(ip_data: String) {
+    push_pending_writes(construct_payload(
+        OPCODE::IP_UPDATE, 
+        &ip_data
+    )).await;
+}
+
+pub async fn send_hello(pid: String) {
+    push_pending_writes(construct_payload(
+        OPCODE::HELLO,
+        &pid
+    )).await;
 }
 
 pub async fn connect(ip_address: String) -> Result<(), Box<dyn Error>> {
@@ -54,9 +68,6 @@ pub async fn connect(ip_address: String) -> Result<(), Box<dyn Error>> {
                             println!("SpifyRFB Daemon: {}", String::from_utf8_lossy(&payload));
                             let mut pendingwrites_lock = PENDING_WRITES.write().await;
                             pendingwrites_lock.push(construct_payload(OPCODE::PONG, "PONG"));
-                        },
-                        OPCODE::PONG => {
-                            println!("PONG");
                         }
                         _ => { /* OPCODE Invalid */ }
                     }                       

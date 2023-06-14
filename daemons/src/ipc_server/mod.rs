@@ -1,13 +1,16 @@
+pub mod event;
+
 use std::{error::Error, time::Duration, collections::HashMap};
 use once_cell::sync::Lazy;
 use tokio::{net::{TcpListener, TcpStream}, io::{self, AsyncReadExt, AsyncWriteExt}, sync::RwLock, time::timeout};
 
-struct OPCODE;
-impl OPCODE {
-    const PING: u8 = 1;
-    const PONG: u8 = 2;
-    const _IP_UPDATE: u8 = 3;
-    const _SHUTDOWN: u8 = 4;
+pub struct IpcEvent;
+impl IpcEvent {
+    pub(crate) const HELLO: u8 = 0;
+    pub(crate) const PING: u8 = 1;
+    pub(crate) const PONG: u8 = 2;
+    pub(crate) const IP_UPDATE: u8 = 3;
+    pub(crate) const _SHUTDOWN: u8 = 4;
 }
 
 static PENDING_WRITES: Lazy<RwLock<HashMap<String, Vec<Vec<u8>>>>>
@@ -52,7 +55,7 @@ async fn init_pending_writes(endpoint: String) {
 }
 
 pub async fn send_ping(endpoint: String) {
-    push_pending_writes(endpoint, construct_payload(OPCODE::PING, "PING")).await;
+    push_pending_writes(endpoint, construct_payload(IpcEvent::PING, "PING")).await;
 }
 
 async fn handle_client(client: TcpStream) {
@@ -60,7 +63,6 @@ async fn handle_client(client: TcpStream) {
     let tcp_endpoint = client.peer_addr().unwrap().to_string();
     init_pending_writes(tcp_endpoint.clone()).await;
     let (mut client_rx, mut client_tx) = io::split(client);
-    send_ping(tcp_endpoint.clone()).await;
 
     /* Read and Write Concurrently (almost) */
     loop {
@@ -79,12 +81,24 @@ async fn handle_client(client: TcpStream) {
 
                 /* Match Opcode */
                 match opcode[0] {
-                    OPCODE::PING => {
+                    IpcEvent::HELLO => {
+                        event::fire(
+                            IpcEvent::HELLO, 
+                            String::from_utf8_lossy(&payload).to_string()
+                        );
+                    },
+                    IpcEvent::PING => {
                         /* Write PONG Message */
                         push_pending_writes(
                             tcp_endpoint.clone(), 
-                            construct_payload(OPCODE::PONG, "PONG")
+                            construct_payload(IpcEvent::PONG, "PONG")
                         ).await;
+                    },
+                    IpcEvent::IP_UPDATE => {
+                        push_pending_writes(tcp_endpoint.clone(), construct_payload(
+                            IpcEvent::PING, 
+                            &format!("Received IP Update: {}", String::from_utf8_lossy(&payload))
+                        )).await;
                     }
                     _ => { /* OPCODE Invalid */ }
                 }    
