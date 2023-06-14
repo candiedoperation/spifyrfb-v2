@@ -264,8 +264,8 @@ async fn process_clientserver_message(
                             RFBEncodingType::RAW,
                             0,
                             0,
-                            (win32_monitor.monitor_rect.right - win32_monitor.monitor_rect.left) as u16,
-                            (win32_monitor.monitor_rect.bottom - win32_monitor.monitor_rect.top) as u16,
+                            win32_monitor.monitor_devmode.dmPelsWidth as u16,
+                            win32_monitor.monitor_devmode.dmPelsHeight as u16,
                             session
                         ),
                     )

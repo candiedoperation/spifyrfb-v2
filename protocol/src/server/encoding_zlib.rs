@@ -68,7 +68,7 @@ pub fn deflate(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangl
             /* Call deflateInit2_ */
             let deflate_init_status = libz_sys::deflateInit2_(
                 &mut zlib_stream,
-                2, /* Set Compress Level (0-9, None-Max) */
+                5, /* Set Compress Level (0-9, None-Max) */
                 libz_sys::Z_DEFLATED,
                 15, /* Range: 8-15 (Min-Max Memory) */
                 8,

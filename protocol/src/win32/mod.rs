@@ -23,9 +23,11 @@ use std::sync::Arc;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::Graphics::Gdi as Win32_Gdi;
 use windows::Win32::Foundation as Win32_Foundation;
+use windows::Win32::Graphics::Gdi::DEVMODEW;
 use windows::Win32::Networking::WinSock as Win32_WinSock;
 use windows::Win32::UI::WindowsAndMessaging as Win32_WindowsAndMessaging;
 use windows::Win32::UI::Input::KeyboardAndMouse as Win32_KeyboardAndMouse;
+use windows::core as Win32_Core;
 
 use crate::server;
 use crate::server::FrameBuffer;
@@ -53,10 +55,11 @@ impl ToU16Vec for String {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Win32Monitor {
     _monitor_handle: Win32_Gdi::HMONITOR,
     pub monitor_rect: Win32_Foundation::RECT,
+    pub monitor_devmode: Win32_Gdi::DEVMODEW,
     normalized_x: i32,
     normalized_y: i32
 }
@@ -297,8 +300,8 @@ pub fn get_display_struct(win32_monitor: Win32Monitor) -> server::RFBServerInit 
         };
     
         RFBServerInit {
-            framebuffer_width: (win32_monitor.monitor_rect.right - win32_monitor.monitor_rect.left) as u16,
-            framebuffer_height: (win32_monitor.monitor_rect.bottom - win32_monitor.monitor_rect.top) as u16,
+            framebuffer_width: win32_monitor.monitor_devmode.dmPelsWidth as u16,
+            framebuffer_height: win32_monitor.monitor_devmode.dmPelsHeight as u16,
             server_pixelformat: pixel_format,
             name_length: valid_hostname.len() as u32,
             name_string: valid_hostname
@@ -310,23 +313,41 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
     unsafe {
         static mut WIN32_MONITORS: Vec<Win32Monitor> = vec![];
         unsafe extern "system" fn display_monitors(monitor_handle: Win32_Gdi::HMONITOR, _device_context: Win32_Gdi::HDC, _bound_rect: *mut Win32_Foundation::RECT,_app_data: Win32_Foundation::LPARAM) -> BOOL {
-            let mut monitor_info: Win32_Gdi::MONITORINFO = Win32_Gdi::MONITORINFO::default();
-            monitor_info.cbSize = mem::size_of::<Win32_Gdi::MONITORINFO>() as u32;
-            let monitor_info_ptr = &mut monitor_info as *mut _;
-            let get_monitor_result = Win32_Gdi::GetMonitorInfoW(monitor_handle, monitor_info_ptr);
+            let mut monitorinfoex: Win32_Gdi::MONITORINFOEXW = Win32_Gdi::MONITORINFOEXW::default();
+            monitorinfoex.monitorInfo.cbSize = mem::size_of::<Win32_Gdi::MONITORINFOEXW>() as u32;
+            let monitorinfoex_ptr = mem::transmute(&mut monitorinfoex);
+            let get_monitor_result = Win32_Gdi::GetMonitorInfoW(monitor_handle, monitorinfoex_ptr);
 
             /* RETURN BOOL FOR CALLBACK */
             match get_monitor_result {
                 Win32_Foundation::TRUE => {
-                    WIN32_MONITORS.push(Win32Monitor { 
-                        _monitor_handle: monitor_handle, 
-                        monitor_rect: monitor_info.rcMonitor,
-                        normalized_x: 65535 / (monitor_info.rcMonitor.right - monitor_info.rcMonitor.left),
-                        normalized_y: 65535 / (monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top)
-                    });
+                    /* Enumerate Display Settings to get Real Resolution */
+                    let mut display_devmode: Win32_Gdi::DEVMODEW = Win32_Gdi::DEVMODEW::default();
+                    display_devmode.dmSize = mem::size_of::<Win32_Gdi::DEVMODEW>() as u16;
+                    let enumdisplaysettings_result = Win32_Gdi::EnumDisplaySettingsW(
+                        Win32_Core::PCWSTR::from_raw(monitorinfoex.szDevice.as_ptr()), 
+                        Win32_Gdi::ENUM_CURRENT_SETTINGS, 
+                        &mut display_devmode
+                    );
 
-                    /* RETURN TRUE TO FFI CALLER */
-                    Win32_Foundation::TRUE
+                    match enumdisplaysettings_result {
+                        Win32_Foundation::TRUE => {
+                            let monitor_info = monitorinfoex.monitorInfo;
+                            WIN32_MONITORS.push(Win32Monitor { 
+                                _monitor_handle: monitor_handle, 
+                                monitor_rect: monitor_info.rcMonitor,
+                                monitor_devmode: display_devmode,
+                                normalized_x: 65535 / display_devmode.dmPelsWidth as i32,
+                                normalized_y: 65535 / display_devmode.dmPelsHeight as i32
+                            });
+        
+                            /* RETURN TRUE TO FFI CALLER */
+                            Win32_Foundation::TRUE
+                        },
+                        _ => {
+                            Win32_Foundation::FALSE
+                        }
+                    }
                 },
                 _ => {
                     Win32_Foundation::FALSE
