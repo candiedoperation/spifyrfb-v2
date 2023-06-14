@@ -21,6 +21,7 @@ use std::ffi::c_void;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::mem;
+use std::sync::RwLock;
 
 use once_cell::unsync::Lazy;
 use windows::core as Win32_Core;
@@ -30,6 +31,9 @@ use windows::Win32::System::Services as Win32_Services;
 use windows::Win32::System::Threading as Win32_Threading;
 use windows::Win32::System::RemoteDesktop as Win32_RemoteDesktop;
 use windows::Win32::System::Diagnostics::ToolHelp as Win32_ToolHelp;
+use windows::Win32::UI::WindowsAndMessaging as Win32_WindowsAndMessaging;
+
+use crate::ipc_server;
 
 struct SpifyRFBService;
 impl SpifyRFBService {
@@ -42,6 +46,13 @@ impl SpifyRFBService {
 struct SpifyRFBProtocolInstance {
     process_handle: Win32_Foundation::HANDLE,
     thread_handle: Win32_Foundation::HANDLE
+}
+
+struct SpifyRFBSpawnParameters {
+    ip: String,
+    ws: String,
+    ws_secure: bool,
+    vnc_authentication: String
 }
 
 trait ToU16Vec {
@@ -59,9 +70,17 @@ impl ToU16Vec for String {
 /* STATICS FOR PROCESS TRACKING */
 static mut SERVICE_HANDLER: Win32_Services::SERVICE_STATUS_HANDLE = Win32_Services::SERVICE_STATUS_HANDLE(0);
 static mut ACTIVE_SPAWNS: Lazy<HashMap<String, SpifyRFBProtocolInstance>> = Lazy::new(|| { HashMap::new() });
+static mut WTS_SESSIONS: Lazy<RwLock<HashMap<u32, SpifyRFBSpawnParameters>>> = Lazy::new(|| { RwLock::new(HashMap::new()) } );
 
 pub fn create() {
     unsafe {
+        /* Create IPC Server Instance */
+        tokio::spawn(async {
+            ipc_server::create("127.0.0.1:8082".to_string())
+                .await.unwrap();
+        });
+
+        /* Init Windows Service Table Entry */
         let service_start_table = Win32_Services::SERVICE_TABLE_ENTRYW {
             lpServiceName: Win32_Core::PWSTR(SpifyRFBService::SERVICE_NAME.to_owned().as_mut_ptr().cast()),
             lpServiceProc: Some(start)
@@ -71,7 +90,6 @@ pub fn create() {
         Win32_Services::StartServiceCtrlDispatcherW(&service_start_table);
     }
 }
-
 
 unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core::PWSTR) {
     let service_handler_result = Win32_Services::RegisterServiceCtrlHandlerExW(
@@ -96,7 +114,6 @@ unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core:
             /* UPDATE FUTURE STATUS HANDLER AND RUNNING STATUS WITH Win32 SERVICES */
             Win32_Services::SetServiceStatus(SERVICE_HANDLER, &service_status);
 
-            /* FUTURE FUNCTION EXECUTION */
             start_app();
         },
         Err(_) => {
@@ -107,8 +124,9 @@ unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core:
 }
 
 
-unsafe extern "system" fn event_handler(_control: u32, _control_event: u32, _control_data: *mut c_void, _control_context: *mut c_void) -> u32 {
-    match _control {
+unsafe extern "system" fn event_handler(control: u32, control_event: u32, control_data: *mut c_void, _control_context: *mut c_void) -> u32 {
+    let mut output_file = OpenOptions::new().append(true).write(true).open("C:\\spifyresult.txt").unwrap();
+    match control {
         Win32_Services::SERVICE_CONTROL_STOP => {
             let mut service_status = Win32_Services::SERVICE_STATUS {
                 dwServiceType: SpifyRFBService::SERVICE_TYPE,
@@ -140,7 +158,31 @@ unsafe extern "system" fn event_handler(_control: u32, _control_event: u32, _con
             service_status.dwCurrentState = Win32_Services::SERVICE_STOPPED;
             Win32_Services::SetServiceStatus(SERVICE_HANDLER, &service_status);
             Win32_Foundation::NO_ERROR.0
-        }
+        },
+        Win32_Services::SERVICE_CONTROL_SESSIONCHANGE => {
+            /* MATCH SESSION CHANGE CODES */
+            let wts_session = 
+                *(control_data as *mut Win32_RemoteDesktop::WTSSESSION_NOTIFICATION);
+            
+            match control_event {
+                /* Use Ports 10000 and Above, the free ones */
+                Win32_WindowsAndMessaging::WTS_SESSION_LOGON => {
+                    let mut wts_seesion_lock = WTS_SESSIONS.write().unwrap();
+                    wts_seesion_lock.insert(wts_session.dwSessionId, SpifyRFBSpawnParameters {
+                        ip: todo!(),
+                        ws: todo!(),
+                        ws_secure: todo!(),
+                        vnc_authentication: todo!(),
+                    });
+
+                    /* Return No Errors */
+                    Win32_Foundation::NO_ERROR.0
+                }
+                _ => {
+                    Win32_Foundation::NO_ERROR.0
+                }
+            }
+        },
         _ => {
             /* DO NOTHING IF EVENT IS NOT RECOGNIZED */
             Win32_Foundation::NO_ERROR.0
@@ -148,12 +190,8 @@ unsafe extern "system" fn event_handler(_control: u32, _control_event: u32, _con
     }
 }
 
-
 fn start_app() {
     unsafe {
-        /* DEBUGGING */
-        let mut output_file = OpenOptions::new().append(true).write(true).open("C:\\spifyresult2.txt").unwrap();
-
         /* GET PROCESS ID OF winlogon.exe */
         let snapshot_handle = 
             Win32_ToolHelp::CreateToolhelp32Snapshot(
@@ -197,7 +235,7 @@ fn start_app() {
         );
         
         let mut startup_info = Win32_Threading::STARTUPINFOW { ..Default::default() };
-        let mut proc_info = Win32_Threading::PROCESS_INFORMATION { ..Default::default() };
+        let mut proc_info = Win32_Threading::PROCESS_INFORMATION::default();
         let mut lp_desktop = String::from(r"winsta0\default").encode_utf16().collect::<Vec<_>>(); lp_desktop.push(0);
         startup_info.lpDesktop = Win32_Core::PWSTR::from_raw(lp_desktop.as_mut_ptr());
 
@@ -205,7 +243,7 @@ fn start_app() {
         let app_path = "spifyrfb-protocol.exe --ip=".to_owned() + ip_address + "\0";
 
         /* CALL CREATEPROCESSASUSERW */
-        let result = Win32_Threading::CreateProcessAsUserW(
+        Win32_Threading::CreateProcessAsUserW(
             winlogin_process_handle,
             Win32_Core::PCWSTR::null(), 
             Win32_Core::PWSTR::from_raw(String::to_u16_vec(app_path).as_mut_ptr()),
@@ -224,9 +262,5 @@ fn start_app() {
             process_handle: proc_info.hProcess, 
             thread_handle: proc_info.hThread
         });
-
-        /* PRINT CREATEPROCESS RESULT */
-        let data = "Result: ".to_owned() + result.0.to_string().as_str() + " -> " + Win32_Foundation::GetLastError().0.to_string().as_str();
-        output_file.write_all(data.as_bytes()).unwrap();
     }
 }

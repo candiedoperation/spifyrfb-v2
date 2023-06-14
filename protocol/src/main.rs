@@ -17,7 +17,7 @@
 */
 
 use spifyrfb_protocol::info;
-use spifyrfb_protocol::server::{RFBAuthentication, VNCAuth};
+use spifyrfb_protocol::server::{RFBAuthentication, VNCAuth, ipc_client};
 use std::env;
 use std::error::Error;
 
@@ -43,6 +43,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             authentication = Option::Some(RFBAuthentication::Vnc(VNCAuth {
                 security_key: security_key.as_bytes()[0..8].try_into().unwrap()
             }));
+        } else if arg.to_string_lossy().starts_with("--spify-daemon=") {
+            let daemon_ip = String::from(arg.to_string_lossy().replace("--spify-daemon=", ""));
+            tokio::spawn(async {
+                ipc_client::connect(daemon_ip).await.unwrap();
+            });
         }
     }
 

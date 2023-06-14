@@ -23,6 +23,7 @@ pub mod encoding_hextile;
 pub mod session;
 pub mod websocket;
 pub mod parser;
+pub mod ipc_client;
 
 use crate::server::{session::SpifySession, parser::GetBits};
 

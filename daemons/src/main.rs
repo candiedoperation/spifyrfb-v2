@@ -18,7 +18,8 @@
 
 use std::env;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     match env::consts::OS {
         "windows" => {
             #[cfg(target_os = "windows")]
