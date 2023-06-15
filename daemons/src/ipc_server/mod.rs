@@ -100,10 +100,10 @@ async fn handle_client(client: TcpStream) {
                         ).await;
                     },
                     IpcEvent::IP_UPDATE => {
-                        push_pending_writes(tcp_endpoint.clone(), construct_payload(
-                            IpcEvent::PING, 
-                            &format!("Received IP Update: {}", String::from_utf8_lossy(&payload))
-                        )).await;
+                        event::fire(
+                            IpcEvent::IP_UPDATE, 
+                            String::from_utf8_lossy(&payload).to_string()
+                        ).await;
                     }
                     _ => { /* OPCODE Invalid */ }
                 }    

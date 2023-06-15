@@ -781,10 +781,6 @@ pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
                     ipc_client::send_hello(
                         format!("{}\r\n{}", process::id().to_string(), tcp_address)
                     ).await;
-
-                    ipc_client::send_ip_update(
-                        format!("tcp\r\n{}", tcp_address)
-                    ).await;
                 }
                 
                 if options.ws_proxy.is_some() {

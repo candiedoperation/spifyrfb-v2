@@ -18,6 +18,7 @@
 
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::fs;
 use std::mem;
 use std::ptr;
 use std::sync::RwLock;
@@ -97,7 +98,26 @@ pub async fn create() {
 }
 
 fn process_ipupdate(data: String) {
-    
+    let data: Vec<&str> = data.split("\r\n").collect();
+    let pid: u32 = data[0].parse().unwrap();
+    let update = data[1];
+
+    /* Get WTS_SESSION LOCK */
+    let mut wts_session_lock = WTS_SESSIONS.write().unwrap();
+    let spawnparameters = wts_session_lock.get_mut(&pid);
+
+    if spawnparameters.is_some() {
+        let spawnparameters = spawnparameters.unwrap();
+        if update.starts_with("ws") {
+            let ws_ip = data[2];
+            spawnparameters.ws = ws_ip.to_string();
+            spawnparameters.ws_secure = false;
+        } else if update.starts_with("wss") {
+            let wss_ip = data[2];
+            spawnparameters.ws = wss_ip.to_string();
+            spawnparameters.ws_secure = true;
+        }
+    }
 }
 
 fn process_hello(data: String) {
@@ -332,7 +352,7 @@ fn spawn_spifyrfb_protcol(session_id: u32) -> Win32_Threading::PROCESS_INFORMATI
         startup_info.lpDesktop = Win32_Core::PWSTR::from_raw(lp_desktop.as_mut_ptr());
 
         /* Create App Path String, Set Console Visibility Based on Debug Flag */
-        let app_path = format!("spifyrfb-protocol.exe --ip=0.0.0.0:0 --spify-daemon={}\0", DAEMON_LISTENIP.to_string());
+        let app_path = format!("spifyrfb-protocol.exe --ip=0.0.0.0:0 --ws=0.0.0.0:0 --spify-daemon={}\0", DAEMON_LISTENIP.to_string());
         let dw_creationflags = if debug::ENABLED == true {
             Win32_Threading::NORMAL_PRIORITY_CLASS
         } else {

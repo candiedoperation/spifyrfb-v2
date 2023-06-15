@@ -17,7 +17,7 @@
 */
 
 use crate::{debug, server::{parser, ipc_client}};
-use std::{error::Error, time::Duration, sync::Arc, pin::Pin};
+use std::{error::Error, time::Duration, sync::Arc, pin::Pin, process};
 use super::parser::{websocket::OPCODE, GetBits};
 use rustls::ServerConfig;
 use tokio::{
@@ -373,7 +373,8 @@ pub async fn create(options: WSCreateOptions) -> Result<(), Box<dyn Error>> {
                 /* Send IP Address Update to Daemon */
                 ipc_client::send_ip_update(
                     format!(
-                        "ws{}\r\n{}", 
+                        "{}\r\nws{}\r\n{}", 
+                        process::id().to_string(),
                         if options.secure == true { "s" } else { "" }, 
                         ws_address
                     )
