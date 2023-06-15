@@ -18,10 +18,14 @@
 
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::fs;
 use std::mem;
+use std::ptr;
 use std::sync::RwLock;
 
 use once_cell::sync::Lazy;
+use windows::Win32::System::RemoteDesktop::WTSEnumerateSessionsW;
+use windows::Win32::System::RemoteDesktop::WTSQuerySessionInformationW;
 use windows::core as Win32_Core;
 use windows::Win32::Security as Win32_Security;
 use windows::Win32::Foundation as Win32_Foundation;
@@ -42,14 +46,14 @@ impl SpifyRFBService {
     const SERVICE_CONTROLS: u32 = Win32_Services::SERVICE_ACCEPT_NETBINDCHANGE | Win32_Services::SERVICE_ACCEPT_STOP | Win32_Services::SERVICE_ACCEPT_SESSIONCHANGE;
 }
 
-#[derive(Clone)]
-struct SpifyRFBSpawnParameters {
+#[derive(Clone, Debug)]
+struct SpifyRFBProtocolInstance {
     ip: String,
     ws: String,
     ws_secure: bool,
     vnc_authentication: String,
-    wts_sessionid: u32,
-    processinfo: Win32_Threading::PROCESS_INFORMATION
+    wts_info: Win32_RemoteDesktop::WTSINFOW,
+    process_info: Win32_Threading::PROCESS_INFORMATION
 }
 
 trait ToU16Vec {
@@ -66,18 +70,18 @@ impl ToU16Vec for String {
 
 /* STATICS FOR PROCESS TRACKING */
 static mut SERVICE_HANDLER: Win32_Services::SERVICE_STATUS_HANDLE = Win32_Services::SERVICE_STATUS_HANDLE(0);
-static WTS_SESSIONS: Lazy<RwLock<HashMap<u32, SpifyRFBSpawnParameters>>> = Lazy::new(|| { RwLock::new(HashMap::new()) } );
+static WTS_SESSIONS: Lazy<RwLock<HashMap<u32, SpifyRFBProtocolInstance>>> = Lazy::new(|| { RwLock::new(HashMap::new()) } );
 static DAEMON_LISTENIP: Lazy<String> = Lazy::new(|| { String::from("127.0.0.1:39281") });
 
-pub fn create() {
+pub async fn create() {
     unsafe {
         /* Register for IPC Communication Events */
-        //event::register(IpcEvent::HELLO, process_hello);
+        event::register(IpcEvent::HELLO, process_hello).await;
+        event::register(IpcEvent::DISCONNECT, process_disconnect).await;
 
-        /* Create IPC Server Instance */
         tokio::spawn(async {
-            ipc_server::create(DAEMON_LISTENIP.to_string())
-                .await.unwrap();
+            /* Create IPC Server Instance */
+            ipc_server::create(DAEMON_LISTENIP.to_string()).await.unwrap();
         });
 
         /* Init Windows Service Table Entry */
@@ -97,11 +101,52 @@ fn process_hello(data: String) {
     let tcp_address = data[1];
 
     let mut wts_session_lock = WTS_SESSIONS.write().unwrap();
-    let mut spawnparameters = wts_session_lock.get(&pid).unwrap().clone();
-    spawnparameters.ip = tcp_address.to_string();
+    let spawnparameters = wts_session_lock.get(&pid);
+    if spawnparameters.is_some() {
+        let mut spawnparameters = spawnparameters.unwrap().clone();
+        spawnparameters.ip = tcp_address.to_string();
 
-    /* Update WTS Session */
-    wts_session_lock.insert(pid, spawnparameters);    
+        /* Update WTS Session */
+        wts_session_lock.insert(pid, spawnparameters);    
+    }
+}
+
+fn process_disconnect(pid: String) {
+    let mut wts_session_lock = WTS_SESSIONS.write().unwrap();
+    wts_session_lock.remove(&pid.parse().unwrap());
+}
+
+unsafe fn get_wts_session_info(session_id: u32) -> Win32_RemoteDesktop::WTSINFOW {
+    let mut session_info_ptr: Win32_Core::PWSTR = Win32_Core::PWSTR(ptr::null_mut());
+    let mut session_info_bytes: u32 = 0;
+
+    WTSQuerySessionInformationW(
+        Win32_RemoteDesktop::WTS_CURRENT_SERVER_HANDLE, 
+        session_id, 
+        Win32_RemoteDesktop::WTSSessionInfo, 
+        &mut session_info_ptr,
+        &mut session_info_bytes
+    );
+
+    let session_info = *(session_info_ptr.0 as *const Win32_RemoteDesktop::WTSINFOW);
+    Win32_RemoteDesktop::WTSFreeMemory(session_info_ptr.0 as _);
+    return session_info;
+}
+
+fn create_wts_session(
+    process_info: Win32_Threading::PROCESS_INFORMATION, 
+    wts_info: Win32_RemoteDesktop::WTSINFOW
+) {
+    /* Release Lock and Update WTS Sessions */
+    let mut wts_session_lock = WTS_SESSIONS.write().unwrap();
+    wts_session_lock.insert(process_info.dwProcessId, SpifyRFBProtocolInstance {
+        ip: String::from(""),
+        ws: String::from(""),
+        ws_secure: false,
+        vnc_authentication: String::from(""),
+        wts_info,
+        process_info,
+    });
 }
 
 unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core::PWSTR) {
@@ -127,7 +172,34 @@ unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core:
             /* UPDATE FUTURE STATUS HANDLER AND RUNNING STATUS WITH Win32 SERVICES */
             Win32_Services::SetServiceStatus(SERVICE_HANDLER, &service_status);
 
-            start_app();
+            /* Enumerate Sessions and Spawn Protocol for Each Session */
+            let mut wts_sessions: *mut Win32_RemoteDesktop::WTS_SESSION_INFOW = ptr::null_mut();
+            let mut wts_sessions_length: u32 = 0;
+
+            let sessions_result = WTSEnumerateSessionsW(
+                Win32_RemoteDesktop::WTS_CURRENT_SERVER_HANDLE, 
+                0, /* Reserved Parameter must be 0 */
+                1, /* Version Parameter must be 1 */
+                &mut wts_sessions, 
+                &mut wts_sessions_length
+            );
+
+            if sessions_result == Win32_Foundation::TRUE {
+                let wts_sessions = Vec::from_raw_parts(
+                    wts_sessions, 
+                    wts_sessions_length as usize, 
+                    wts_sessions_length as usize
+                );
+
+                for wts_session in wts_sessions {
+                    if wts_session.SessionId != 0 {
+                        create_wts_session(
+                            start_app(), 
+                            get_wts_session_info(wts_session.SessionId)
+                        );
+                    }
+                }
+            }
         },
         Err(_) => {
             /* RETURN SERVICE FAILURE */
@@ -135,7 +207,6 @@ unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core:
         }
     } 
 }
-
 
 unsafe extern "system" fn event_handler(control: u32, control_event: u32, control_data: *mut c_void, _control_context: *mut c_void) -> u32 {
     match control {
@@ -157,8 +228,8 @@ unsafe extern "system" fn event_handler(control: u32, control_event: u32, contro
             for wts_sessionkey in wts_sessions.keys() {
                 /* IPC Closes Processes when spawned with the Daemon Flag */
                 let wts_session = wts_sessions.get(wts_sessionkey).unwrap();
-                Win32_Foundation::CloseHandle(wts_session.processinfo.hProcess);
-                Win32_Foundation::CloseHandle(wts_session.processinfo.hThread);
+                Win32_Foundation::CloseHandle(wts_session.process_info.hProcess);
+                Win32_Foundation::CloseHandle(wts_session.process_info.hThread);
             }
 
             /* SET STOP STATUS AND EXIT GRACEFULLY */
@@ -174,18 +245,10 @@ unsafe extern "system" fn event_handler(control: u32, control_event: u32, contro
             match control_event {
                 Win32_WindowsAndMessaging::WTS_SESSION_LOGON => {
                     /* Create Spify Protocol Instance, Get ProcessInfo */
-                    let processinfo = start_app();
-
-                    /* Release Lock and Update WTS Sessions */
-                    let mut wts_session_lock = WTS_SESSIONS.write().unwrap();
-                    wts_session_lock.insert(processinfo.dwProcessId, SpifyRFBSpawnParameters {
-                        ip: String::from(""),
-                        ws: String::from(""),
-                        ws_secure: false,
-                        vnc_authentication: String::from(""),
-                        wts_sessionid: wts_session.dwSessionId,
-                        processinfo,
-                    });
+                    create_wts_session(
+                        start_app(), 
+                        get_wts_session_info(wts_session.dwSessionId)
+                    );
 
                     /* Return No Errors */
                     Win32_Foundation::NO_ERROR.0

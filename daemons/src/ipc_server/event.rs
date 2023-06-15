@@ -1,11 +1,12 @@
-use std::{collections::HashMap, sync::RwLock};
+use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use tokio::sync::RwLock;
 
 static EVENT_LISTENERS: Lazy<RwLock<HashMap<u8, Vec<fn(String)>>>>
     = Lazy::new(|| { RwLock::new(HashMap::new()) });
 
-pub fn register(event: u8, callback: fn(String)) {
-    let mut eventlistener_lock = EVENT_LISTENERS.write().unwrap();
+pub async fn register(event: u8, callback: fn(String)) {
+    let mut eventlistener_lock = EVENT_LISTENERS.write().await;
     if eventlistener_lock.get(&event).is_none() {
         eventlistener_lock.insert(event, vec![]);
     }
@@ -19,8 +20,8 @@ pub fn register(event: u8, callback: fn(String)) {
     eventlistener_lock.insert(event, updated_event);
 }
 
-pub fn fire(event: u8, data: String) {
-    let eventlistener_lock = EVENT_LISTENERS.read().unwrap();
+pub async fn fire(event: u8, data: String) {
+    let eventlistener_lock = EVENT_LISTENERS.read().await;
     let listeners = eventlistener_lock.get(&event);
     if listeners.is_some() {
         let listeners = listeners.unwrap();

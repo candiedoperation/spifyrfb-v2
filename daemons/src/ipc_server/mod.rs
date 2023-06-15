@@ -10,7 +10,7 @@ impl IpcEvent {
     pub(crate) const PING: u8 = 1;
     pub(crate) const PONG: u8 = 2;
     pub(crate) const IP_UPDATE: u8 = 3;
-    pub(crate) const _SHUTDOWN: u8 = 4;
+    pub(crate) const DISCONNECT: u8 = 4;
 }
 
 static PENDING_WRITES: Lazy<RwLock<HashMap<String, Vec<Vec<u8>>>>>
@@ -60,6 +60,7 @@ pub async fn send_ping(endpoint: String) {
 
 async fn handle_client(client: TcpStream) {
     /* Define Function Objects */
+    let mut client_pid: Option<u32> = Option::None;
     let tcp_endpoint = client.peer_addr().unwrap().to_string();
     init_pending_writes(tcp_endpoint.clone()).await;
     let (mut client_rx, mut client_tx) = io::split(client);
@@ -82,10 +83,14 @@ async fn handle_client(client: TcpStream) {
                 /* Match Opcode */
                 match opcode[0] {
                     IpcEvent::HELLO => {
+                        let parsed_payload = String::from_utf8_lossy(&payload).to_string();
+                        let parsed_payload: Vec<&str> = parsed_payload.split("\r\n").collect();
+                        client_pid = Option::Some(parsed_payload[0].parse().unwrap());
+
                         event::fire(
                             IpcEvent::HELLO, 
                             String::from_utf8_lossy(&payload).to_string()
-                        );
+                        ).await;
                     },
                     IpcEvent::PING => {
                         /* Write PONG Message */
@@ -103,7 +108,13 @@ async fn handle_client(client: TcpStream) {
                     _ => { /* OPCODE Invalid */ }
                 }    
             } else {
-                /* Server Disconnected */
+                /* Server Disconnected, Fire Event */
+                event::fire(
+                    IpcEvent::DISCONNECT, 
+                    client_pid.unwrap().to_string()
+                ).await;
+
+                /* Close the Thread */
                 break;
             }       
         } else {

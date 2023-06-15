@@ -23,7 +23,7 @@ async fn main() {
     match env::consts::OS {
         "windows" => {
             #[cfg(target_os = "windows")]
-            spifyrfb_daemon::windows::create();
+            spifyrfb_daemon::windows::create().await;
         }
         os => {
             println!("OS Not Supported: {}", os);
