@@ -20,14 +20,15 @@ mod keycodes;
 use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
+use windows::Win32::System::StationsAndDesktops::SetThreadDesktop;
+use windows::core as Win32_Core;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::Graphics::Gdi as Win32_Gdi;
 use windows::Win32::Foundation as Win32_Foundation;
-use windows::Win32::Graphics::Gdi::DEVMODEW;
 use windows::Win32::Networking::WinSock as Win32_WinSock;
 use windows::Win32::UI::WindowsAndMessaging as Win32_WindowsAndMessaging;
 use windows::Win32::UI::Input::KeyboardAndMouse as Win32_KeyboardAndMouse;
-use windows::core as Win32_Core;
+use windows::Win32::System::StationsAndDesktops as Win32_StationsAndDesktops;
 
 use crate::server;
 use crate::server::FrameBuffer;
@@ -192,8 +193,24 @@ pub fn rectangle_framebuffer_update(
     session: String
 ) -> FrameBufferUpdate {
     unsafe {
-        let compatible_bitmap = Win32_Gdi::CreateCompatibleBitmap(win32_server.capture_driver.desktop_dc, width as i32, height as i32);
-        let compatible_dc = win32_server.capture_driver.compatible_dc;
+        /* Get Desktop User is currently seeing */
+        let input_desktop = Win32_StationsAndDesktops::OpenInputDesktop(
+            Win32_StationsAndDesktops::DESKTOP_CONTROL_FLAGS(0), /* Prevent Processes in Other Accounts to set Hooks */ 
+            Win32_Foundation::FALSE, /* Processes Spawn Don't Inherit */
+            Win32_StationsAndDesktops::DESKTOP_ACCESS_FLAGS(Win32_Foundation::GENERIC_ALL.0)
+        );
+
+        if input_desktop.is_ok() {
+            let input_desktop = input_desktop.unwrap();
+            Win32_StationsAndDesktops::SetThreadDesktop(input_desktop);
+        } else {
+            println!("FAILURE: {:?}", input_desktop.err().unwrap());
+        }
+
+        /* Initiate Screen Capture */
+        let desktop_dc = Win32_Gdi::GetDC(Option::None);
+        let compatible_dc = Win32_Gdi::CreateCompatibleDC(desktop_dc);
+        let compatible_bitmap = Win32_Gdi::CreateCompatibleBitmap(desktop_dc, width as i32, height as i32);
         Win32_Gdi::SelectObject(compatible_dc, compatible_bitmap);
         Win32_Gdi::StretchBlt(
             compatible_dc,
@@ -201,7 +218,7 @@ pub fn rectangle_framebuffer_update(
             y_position as i32, 
             width as i32, 
             height as i32, 
-            win32_server.capture_driver.desktop_dc, 
+            desktop_dc, 
             x_position as i32, 
             y_position  as i32,
             width as i32, 
@@ -236,6 +253,8 @@ pub fn rectangle_framebuffer_update(
 
         /* DESTROY BITMAP AFTER SAVE, DEALLOC OBJECTS ON CLOSE */
         Win32_Gdi::DeleteObject(compatible_bitmap);
+        Win32_Gdi::DeleteDC(compatible_dc);
+        Win32_Gdi::ReleaseDC(Win32_Foundation::HWND(0), desktop_dc);
 
         let mut framebuffer_rectangles: Vec<FrameBufferRectangle> = vec![];
         let mut framebuffer_struct = FrameBuffer {

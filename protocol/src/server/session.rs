@@ -16,7 +16,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::{sync::RwLock, collections::HashMap};
+use std::{collections::HashMap, sync::RwLock};
 use once_cell::sync::Lazy;
 
 #[derive(Clone, Copy)]
@@ -24,9 +24,8 @@ pub struct SpifySession {
     pub zlib_stream: libz_sys::z_stream
 }
 
-static mut ACTIVE_SESSIONS: Lazy<RwLock<HashMap<String, SpifySession>>> = Lazy::new(|| {
-    RwLock::new(HashMap::new())
-});
+static mut ACTIVE_SESSIONS: Lazy<RwLock<HashMap<String, SpifySession>>>
+    = Lazy::new(|| { RwLock::new(HashMap::new()) });
 
 pub fn new(peer_address: String, session: SpifySession) {
     unsafe {
@@ -51,7 +50,8 @@ pub fn destroy(peer_address: String) {
 
 pub fn get_zlib_stream(peer_address: String) -> libz_sys::z_stream {
     unsafe {
-        let session_lock = ACTIVE_SESSIONS.read().unwrap();
+        let session_lock = ACTIVE_SESSIONS.read();
+        let session_lock = session_lock.unwrap();
         session_lock.get(&peer_address).unwrap().zlib_stream        
     }
 }

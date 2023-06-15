@@ -833,7 +833,7 @@ pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
                         session::new(client.peer_addr().unwrap().to_string(), SpifySession {
                             zlib_stream: encoding_zlib::create_zlib_stream()
                         });
-                        
+
                         /* Init Handshake */
                         println!("Connection Established: {:?}", client);
                         init_handshake(client, wm, auth_clone).await;

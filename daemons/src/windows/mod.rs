@@ -35,6 +35,7 @@ use windows::Win32::System::RemoteDesktop as Win32_RemoteDesktop;
 use windows::Win32::System::Diagnostics::ToolHelp as Win32_ToolHelp;
 use windows::Win32::UI::WindowsAndMessaging as Win32_WindowsAndMessaging;
 
+use crate::debug;
 use crate::ipc_server;
 use crate::ipc_server::IpcEvent;
 use crate::ipc_server::event;
@@ -194,7 +195,7 @@ unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core:
                 for wts_session in wts_sessions {
                     if wts_session.SessionId != 0 {
                         create_wts_session(
-                            start_app(), 
+                            spawn_spifyrfb_protcol(wts_session.SessionId), 
                             get_wts_session_info(wts_session.SessionId)
                         );
                     }
@@ -246,13 +247,13 @@ unsafe extern "system" fn event_handler(control: u32, control_event: u32, contro
                 Win32_WindowsAndMessaging::WTS_SESSION_LOGON => {
                     /* Create Spify Protocol Instance, Get ProcessInfo */
                     create_wts_session(
-                        start_app(), 
+                        spawn_spifyrfb_protcol(wts_session.dwSessionId), 
                         get_wts_session_info(wts_session.dwSessionId)
                     );
 
                     /* Return No Errors */
                     Win32_Foundation::NO_ERROR.0
-                }
+                },
                 _ => {
                     Win32_Foundation::NO_ERROR.0
                 }
@@ -265,7 +266,7 @@ unsafe extern "system" fn event_handler(control: u32, control_event: u32, contro
     }
 }
 
-fn start_app() -> Win32_Threading::PROCESS_INFORMATION{
+fn spawn_spifyrfb_protcol(session_id: u32) -> Win32_Threading::PROCESS_INFORMATION{
     unsafe {
         /* GET PROCESS ID OF winlogon.exe */
         let snapshot_handle = 
@@ -282,10 +283,12 @@ fn start_app() -> Win32_Threading::PROCESS_INFORMATION{
 
         if Win32_ToolHelp::Process32First(snapshot_handle, &mut process32) == Win32_Foundation::TRUE {
             loop {
+                /* Check if this process is WINLOGON.EXE */
                 if String::from_utf8_lossy(&process32.szExeFile).to_lowercase().contains("winlogon.exe") == true {
                     winlogon_process32_ids.push((&process32.th32ProcessID).to_owned());
                 }
 
+                /* Check if Next Process Exists */
                 if Win32_ToolHelp::Process32Next(snapshot_handle, &mut process32) == Win32_Foundation::TRUE {
                     continue;
                 } else {
@@ -294,9 +297,19 @@ fn start_app() -> Win32_Threading::PROCESS_INFORMATION{
             }
         }
 
-        /* Find which winlogon is a part of current Terminal Service Session */
-        /* use ProcessIdToSessionId() */
-        let winlogon_process_id = winlogon_process32_ids[0];
+        /* Find which winlogon.exe is a part of current Terminal Service Session */
+        let mut winlogon_process_id = winlogon_process32_ids[0];
+        for process32_id in winlogon_process32_ids {
+            let mut session: u32 = 0;
+            Win32_RemoteDesktop::ProcessIdToSessionId(
+                process32_id, 
+                &mut session
+            );
+
+            if session == session_id {
+                winlogon_process_id = process32_id;
+            }
+        }
 
         let mut winlogin_process_handle: Win32_Foundation::HANDLE = Win32_Foundation::HANDLE::default();
         Win32_Threading::OpenProcessToken(
@@ -314,8 +327,13 @@ fn start_app() -> Win32_Threading::PROCESS_INFORMATION{
         let mut lp_desktop = String::from(r"winsta0\default").encode_utf16().collect::<Vec<_>>(); lp_desktop.push(0);
         startup_info.lpDesktop = Win32_Core::PWSTR::from_raw(lp_desktop.as_mut_ptr());
 
-        /* Create App Path String */
+        /* Create App Path String, Set Console Visibility Based on Debug Flag */
         let app_path = format!("spifyrfb-protocol.exe --ip=0.0.0.0:0 --spify-daemon={}\0", DAEMON_LISTENIP.to_string());
+        let dw_creationflags = if debug::ENABLED == true {
+            Win32_Threading::NORMAL_PRIORITY_CLASS
+        } else {
+            Win32_Threading::NORMAL_PRIORITY_CLASS | Win32_Threading::CREATE_NO_WINDOW
+        };
 
         /* CALL CREATEPROCESSASUSERW */
         Win32_Threading::CreateProcessAsUserW(
@@ -325,7 +343,7 @@ fn start_app() -> Win32_Threading::PROCESS_INFORMATION{
             Option::None, 
             Option::None, 
             Win32_Foundation::TRUE, 
-            Win32_Threading::NORMAL_PRIORITY_CLASS, 
+            dw_creationflags, 
             Option::None, 
             Option::None, 
             &startup_info, 

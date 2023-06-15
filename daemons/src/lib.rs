@@ -22,3 +22,7 @@ pub mod windows;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod ipc_server;
+
+pub mod debug {
+    pub(crate) const ENABLED: bool = true;
+}
