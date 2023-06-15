@@ -18,7 +18,6 @@
 
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::fs;
 use std::mem;
 use std::ptr;
 use std::sync::RwLock;

@@ -16,29 +16,47 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::{mem, ptr};
-use super::{session, FrameBufferRectangle, FrameBuffer, RFBEncodingType};
+use std::{mem, ptr, collections::HashMap, sync::RwLock};
+use once_cell::sync::Lazy;
 
-pub fn create_zlib_stream() -> libz_sys::z_stream {
-    libz_sys::z_stream {
-        next_in: ptr::null_mut(),
-        avail_in: 0,
-        total_in: 0,
-        next_out: ptr::null_mut(),
-        avail_out: 0,
-        total_out: 0,
-        msg: ptr::null::<u8>() as _,
-        state: ptr::null::<u8>() as _,
-        zalloc: unsafe { mem::transmute(ptr::null::<u8>()) },
-        zfree: unsafe { mem::transmute(ptr::null::<u8>()) },
-        opaque: ptr::null::<u8>() as _,
-        data_type: libz_sys::Z_BINARY,
-        adler: 0,
-        reserved: 0,
+use super::{FrameBufferRectangle, FrameBuffer, RFBEncodingType};
+
+static mut LIVE_ZSTREAMS: Lazy<RwLock<HashMap<String, libz_sys::z_stream>>>
+    = Lazy::new(|| { RwLock::new(HashMap::new()) });
+
+pub fn create_stream(stream_id: String) {
+    unsafe {
+        let mut zstreams_lock = LIVE_ZSTREAMS.write().unwrap();
+        zstreams_lock.insert(
+            stream_id,
+            libz_sys::z_stream {
+                next_in: ptr::null_mut(),
+                avail_in: 0,
+                total_in: 0,
+                next_out: ptr::null_mut(),
+                avail_out: 0,
+                total_out: 0,
+                msg: ptr::null::<u8>() as _,
+                state: ptr::null::<u8>() as _,
+                zalloc: mem::transmute(ptr::null::<u8>()),
+                zfree: mem::transmute(ptr::null::<u8>()),
+                opaque: ptr::null::<u8>() as _,
+                data_type: libz_sys::Z_BINARY,
+                adler: 0,
+                reserved: 0,
+            }
+        );
     }
 }
 
-pub fn deflate(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangle {
+pub fn flush_stream(stream_id: String) {
+    unsafe {
+        let mut zstreams_lock = LIVE_ZSTREAMS.write().unwrap();
+        zstreams_lock.remove(&stream_id);
+    }
+}
+
+pub fn deflate(framebuffer: FrameBuffer, stream_id: String) -> FrameBufferRectangle {
     let zlib_data = framebuffer.encoded_pixels;
     let max_compressed = zlib_data.len() + ((zlib_data.len() + 99) / 100) + 12;
     let mut next_in: Vec<u8> = zlib_data.clone();
@@ -55,7 +73,8 @@ pub fn deflate(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangl
     };
 
     unsafe {
-        let mut zlib_stream = session::get_zlib_stream(session.clone());
+        let mut zlibstream_lock = LIVE_ZSTREAMS.write().unwrap();
+        let zlib_stream = zlibstream_lock.get_mut(&stream_id).unwrap();
         zlib_stream.next_in = next_in.as_mut_ptr();
         zlib_stream.avail_in = next_in.len() as u32;
         zlib_stream.next_out = next_out.as_mut_ptr();
@@ -63,11 +82,11 @@ pub fn deflate(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangl
 
         if zlib_stream.total_in == 0 {
             /* Init ZLIB Stream */
-            println!("Initializing Zlib Stream");
+            println!("Initializing Zlib Stream ID {}", stream_id);
 
             /* Call deflateInit2_ */
             let deflate_init_status = libz_sys::deflateInit2_(
-                &mut zlib_stream,
+                zlib_stream,
                 5, /* Set Compress Level (0-9, None-Max) */
                 libz_sys::Z_DEFLATED,
                 15, /* Range: 8-15 (Min-Max Memory) */
@@ -85,7 +104,7 @@ pub fn deflate(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangl
 
         let previous_total_out = zlib_stream.total_out;
         let deflate_status = libz_sys::deflate(
-            &mut zlib_stream,
+            zlib_stream,
             libz_sys::Z_SYNC_FLUSH
         );
 
@@ -96,7 +115,6 @@ pub fn deflate(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangl
 
         /* Calculate Compression and Update Stream */
         let compressed_bytes = zlib_stream.total_out - previous_total_out;
-        session::update_zlib_stream(session, zlib_stream);
 
         /* Update FrameBufferRectangle */
         framebuffer_rectangle.encoded_pixels_length = compressed_bytes as u32;
@@ -106,6 +124,6 @@ pub fn deflate(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangl
     }
 }
 
-pub fn get_pixel_data(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangle {
-    deflate(framebuffer, session)
+pub fn get_pixel_data(framebuffer: FrameBuffer, stream_id: String) -> FrameBufferRectangle {
+    deflate(framebuffer, stream_id)
 }

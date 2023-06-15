@@ -20,7 +20,6 @@ mod keycodes;
 use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
-use windows::Win32::System::StationsAndDesktops::SetThreadDesktop;
 use windows::core as Win32_Core;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::Graphics::Gdi as Win32_Gdi;
@@ -65,14 +64,8 @@ pub struct Win32Monitor {
     normalized_y: i32
 }
 
-struct Win32CaptureDriver {
-    desktop_dc: Win32_Gdi::HDC,
-    compatible_dc: Win32_Gdi::CreatedHDC,
-}
-
 pub struct Win32Server {
     pub(crate) monitors: Vec<Win32Monitor>,
-    capture_driver: Win32CaptureDriver,
     keysym_vk_map: HashMap<u32, Win32_KeyboardAndMouse::VIRTUAL_KEY>
 }
 
@@ -183,14 +176,13 @@ pub fn fire_pointer_event(
 }
 
 pub fn rectangle_framebuffer_update(
-    win32_server: &Win32Server,
     _win32_monitor: Win32Monitor, 
     encoding_type: i32,
     x_position: i16,
     y_position: i16,
     width: u16,
     height: u16,
-    session: String
+    zstream_id: String
 ) -> FrameBufferUpdate {
     unsafe {
         /* Get Desktop User is currently seeing */
@@ -275,11 +267,11 @@ pub fn rectangle_framebuffer_update(
             },
             RFBEncodingType::ZRLE => {
                 framebuffer_struct.encoding = RFBEncodingType::ZRLE;
-                framebuffer_rectangles.push(encoding_zrle::get_pixel_data(framebuffer_struct, session));
+                framebuffer_rectangles.push(encoding_zrle::get_pixel_data(framebuffer_struct, zstream_id));
             },
             RFBEncodingType::ZLIB => {
                 framebuffer_struct.encoding = RFBEncodingType::ZLIB;
-                framebuffer_rectangles.push(encoding_zlib::get_pixel_data(framebuffer_struct, session));
+                framebuffer_rectangles.push(encoding_zlib::get_pixel_data(framebuffer_struct, zstream_id));
             },
             RFBEncodingType::HEX_TILE => {
                 framebuffer_struct.encoding = RFBEncodingType::HEX_TILE;
@@ -384,17 +376,11 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
 
         match enum_display_monitors_result {
             Win32_Foundation::TRUE => {
-                let desktop_device_context = Win32_Gdi::GetDC(Win32_Foundation::HWND::default());
-                let dest_device_context = Win32_Gdi::CreateCompatibleDC(desktop_device_context);
+                /* Create Keysym_VK_Map */
                 let keysym_vk_map = keycodes::create_keysym_vk_map();
-
                 return Ok(Arc::from(WindowManager::WIN32(Win32Server {
                     monitors: WIN32_MONITORS.to_vec(),
-                    keysym_vk_map,
-                    capture_driver: Win32CaptureDriver { 
-                        desktop_dc: desktop_device_context, 
-                        compatible_dc: dest_device_context
-                    }
+                    keysym_vk_map
                 })));
             },
             _ => {

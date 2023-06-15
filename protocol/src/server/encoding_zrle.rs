@@ -19,7 +19,7 @@
 use crate::server::encoding_zlib::deflate;
 use super::{FrameBuffer, FrameBufferRectangle};
 
-pub fn get_pixel_data(framebuffer: FrameBuffer, session: String) -> FrameBufferRectangle {
+pub fn get_pixel_data(framebuffer: FrameBuffer, stream_id: String) -> FrameBufferRectangle {
     let mut c_pixels: Vec<u8> = vec![];
     for pixel in framebuffer.raw_pixels.chunks(4).collect::<Vec<&[u8]>>() {
         /* CPIXELS are only three bytes */
@@ -42,7 +42,7 @@ pub fn get_pixel_data(framebuffer: FrameBuffer, session: String) -> FrameBufferR
     deflate(FrameBuffer {
         encoded_pixels: encoded_tiles,
         ..framebuffer.clone()
-    }, session)
+    }, stream_id)
 }
 
 fn encode(framebuffer: FrameBuffer) -> Vec<u8> {

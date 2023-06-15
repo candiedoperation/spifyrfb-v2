@@ -20,12 +20,11 @@ pub mod encoding_raw;
 pub mod encoding_zrle;
 pub mod encoding_zlib;
 pub mod encoding_hextile;
-pub mod session;
 pub mod websocket;
 pub mod parser;
 pub mod ipc_client;
 
-use crate::server::{session::SpifySession, parser::GetBits, websocket::WSCreateOptions};
+use crate::server::{parser::GetBits, websocket::WSCreateOptions};
 
 #[cfg(target_os = "windows")]
 use crate::win32;
@@ -248,12 +247,11 @@ async fn write_framebuffer_update_message(
 }
 
 async fn process_clientserver_message(
-    _client_rx: &mut ReadHalf<'_>,
+    client_rx: &mut ReadHalf<'_>,
     client_tx: &mut WriteHalf<'_>,
     opcode: &[u8],
     buffer: &[u8],
-    wm: Arc<WindowManager>,
-    session: String
+    wm: Arc<WindowManager>
 ) {
     match opcode[0] {
         ClientToServerMessage::SET_PIXEL_FORMAT => {
@@ -267,14 +265,13 @@ async fn process_clientserver_message(
                     write_framebuffer_update_message(
                         client_tx,
                         win32::rectangle_framebuffer_update(
-                            win32_server,
                             win32_monitor.clone(),
                             RFBEncodingType::RAW,
                             0,
                             0,
                             win32_monitor.monitor_devmode.dmPelsWidth as u16,
                             win32_monitor.monitor_devmode.dmPelsHeight as u16,
-                            session
+                            client_rx.peer_addr().unwrap().to_string()
                         ),
                     )
                     .await;
@@ -315,14 +312,13 @@ async fn process_clientserver_message(
                     write_framebuffer_update_message(
                         client_tx,
                         win32::rectangle_framebuffer_update(
-                            win32_server,
                             win32_server.monitors[0].clone(),
                             RFBEncodingType::ZRLE,
                             x_position as i16,
                             y_position as i16,
                             width,
                             height,
-                            session
+                            client_rx.peer_addr().unwrap().to_string()
                         ),
                     )
                     .await;
@@ -442,93 +438,81 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
     let peer_address = client.peer_addr().unwrap().to_string();
     let (mut client_rx, mut client_tx) = client.split();
 
+    /* Create Endpoint Specific ZLib Stream */
+    encoding_zlib::create_stream(peer_address.clone());
+
     loop {
         let mut opcode: [u8; 1] = [0; 1];
-        match client_rx.read_exact(&mut opcode).await {
-            // Return value of `Ok(0)` signifies that the remote has close
-            Ok(0) => {
-                println!("Client Has Disconnected");
-                session::destroy(peer_address);
-                return;
-            }
-            Ok(_) => {
-                match opcode[0] {
-                    ClientToServerMessage::SET_PIXEL_FORMAT => {
-                        let mut buffer: [u8; 19] = [0; 19];
-                        client_rx.read_exact(&mut buffer).await.unwrap();
-                        process_clientserver_message(
-                            &mut client_rx,
-                            &mut client_tx,
-                            &opcode,
-                            &buffer,
-                            wm.clone(),
-                            peer_address.clone()
-                        )
-                        .await;
-                    }
-                    ClientToServerMessage::SET_ENCODINGS => {
-                        let mut buffer: [u8; 3] = [0; 3];
-                        client_rx.read_exact(&mut buffer).await.unwrap();
-                        process_clientserver_message(
-                            &mut client_rx,
-                            &mut client_tx,
-                            &opcode,
-                            &buffer,
-                            wm.clone(),
-                            peer_address.clone()
-                        )
-                        .await;
-                    }
-                    ClientToServerMessage::FRAME_BUFFER_UPDATE_REQUEST => {
-                        //debug::l1(format!("FBU Request Time: {:?}", debug::time_now()));
-                        let mut buffer: [u8; 9] = [0; 9];
-                        client_rx.read_exact(&mut buffer).await.unwrap();
-                        process_clientserver_message(
-                            &mut client_rx,
-                            &mut client_tx,
-                            &opcode,
-                            &buffer,
-                            wm.clone(),
-                            peer_address.clone()
-                        )
-                        .await;
-                    }
-                    ClientToServerMessage::POINTER_EVENT => {
-                        let mut buffer: [u8; 5] = [0; 5];
-                        client_rx.read_exact(&mut buffer).await.unwrap();
-                        process_clientserver_message(
-                            &mut client_rx,
-                            &mut client_tx,
-                            &opcode,
-                            &buffer,
-                            wm.clone(),
-                            peer_address.clone()
-                        )
-                        .await;
-                    }
-                    ClientToServerMessage::KEY_EVENT => {
-                        let mut buffer: [u8; 7] = [0; 7];
-                        client_rx.read_exact(&mut buffer).await.unwrap();
-                        process_clientserver_message(
-                            &mut client_rx,
-                            &mut client_tx,
-                            &opcode,
-                            &buffer,
-                            wm.clone(),
-                            peer_address.clone()
-                        )
-                        .await;
-                    }
-                    _ => { /* EXCEPTION EVENT: CLIENT_CUT_TEXT */ }
+        let payload_result = client_rx.read_exact(&mut opcode).await;
+        if payload_result.unwrap_or(0) != 0 {
+            match opcode[0] {
+                ClientToServerMessage::SET_PIXEL_FORMAT => {
+                    let mut buffer: [u8; 19] = [0; 19];
+                    client_rx.read_exact(&mut buffer).await.unwrap();
+                    process_clientserver_message(
+                        &mut client_rx,
+                        &mut client_tx,
+                        &opcode,
+                        &buffer,
+                        wm.clone()
+                    )
+                    .await;
                 }
+                ClientToServerMessage::SET_ENCODINGS => {
+                    let mut buffer: [u8; 3] = [0; 3];
+                    client_rx.read_exact(&mut buffer).await.unwrap();
+                    process_clientserver_message(
+                        &mut client_rx,
+                        &mut client_tx,
+                        &opcode,
+                        &buffer,
+                        wm.clone()
+                    )
+                    .await;
+                }
+                ClientToServerMessage::FRAME_BUFFER_UPDATE_REQUEST => {
+                    //debug::l1(format!("FBU Request Time: {:?}", debug::time_now()));
+                    let mut buffer: [u8; 9] = [0; 9];
+                    client_rx.read_exact(&mut buffer).await.unwrap();
+                    process_clientserver_message(
+                        &mut client_rx,
+                        &mut client_tx,
+                        &opcode,
+                        &buffer,
+                        wm.clone()
+                    )
+                    .await;
+                }
+                ClientToServerMessage::POINTER_EVENT => {
+                    let mut buffer: [u8; 5] = [0; 5];
+                    client_rx.read_exact(&mut buffer).await.unwrap();
+                    process_clientserver_message(
+                        &mut client_rx,
+                        &mut client_tx,
+                        &opcode,
+                        &buffer,
+                        wm.clone()
+                    )
+                    .await;
+                }
+                ClientToServerMessage::KEY_EVENT => {
+                    let mut buffer: [u8; 7] = [0; 7];
+                    client_rx.read_exact(&mut buffer).await.unwrap();
+                    process_clientserver_message(
+                        &mut client_rx,
+                        &mut client_tx,
+                        &opcode,
+                        &buffer,
+                        wm.clone()
+                    )
+                    .await;
+                }
+                _ => { /* EXCEPTION EVENT: CLIENT_CUT_TEXT */ }
             }
-            Err(_) => {
-                // Unexpected client error. There isn't much we can do
-                // here so just stop processing.
-                println!("Client Has Disconnected (ERR)");
-                session::destroy(peer_address);
-                return;
-            }
+        } else {
+            encoding_zlib::flush_stream(peer_address);
+            println!("Client Has Disconnected");
+            break;
         }
     }
 }
@@ -667,11 +651,7 @@ async fn init_securityresult_handshake(
             /* HANDLE VNC AUTHENTICATION, Get Password */
             let vnc_key: [u8; 8];
             match auth.unwrap() {
-                RFBAuthentication::Vnc(key) => vnc_key = key.security_key,
-                _ => {
-                    /* Streamline this in Future */
-                    vnc_key = [0; 8];
-                }
+                RFBAuthentication::Vnc(key) => vnc_key = key.security_key
             }
 
             /*
@@ -828,12 +808,8 @@ pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
                     let (client, _) = listener.accept().await?;
                     let wm = Arc::clone(&wm_arc);
                     let auth_clone = options.auth.clone();
-                    tokio::spawn(async move {
-                        // Handle The Client
-                        session::new(client.peer_addr().unwrap().to_string(), SpifySession {
-                            zlib_stream: encoding_zlib::create_zlib_stream()
-                        });
 
+                    tokio::spawn(async move {
                         /* Init Handshake */
                         println!("Connection Established: {:?}", client);
                         init_handshake(client, wm, auth_clone).await;
@@ -883,7 +859,7 @@ pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
                     tokio::spawn(async move {
                         // Handle The Client
                         session::new(client.peer_addr().unwrap().to_string(), SpifySession {
-                            zlib_stream: encoding_zlib::create_zlib_stream()
+                            zlib_stream: encoding_zlib::create_stream()
                         });
                         
                         /* Init Handshake */
