@@ -152,6 +152,7 @@ pub struct FrameBufferUpdate {
 pub enum WindowManager {
     #[cfg(target_os = "linux")]
     X11(x11::X11Server),
+    /* Add Wayland in Future */
 
     #[cfg(target_os = "windows")]
     WIN32(win32::Win32Server),
@@ -267,7 +268,7 @@ async fn process_clientserver_message(
                         win32::rectangle_framebuffer_update(
                             win32_server,
                             win32_monitor.clone(),
-                            RFBEncodingType::RAW,
+                            RFBEncodingType::ZRLE,
                             0,
                             0,
                             win32_monitor.monitor_devmode.dmPelsWidth as u16,

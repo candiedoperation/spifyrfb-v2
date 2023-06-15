@@ -21,11 +21,15 @@ use super::{FrameBuffer, FrameBufferRectangle};
 
 pub fn get_pixel_data(framebuffer: FrameBuffer, stream_id: String) -> FrameBufferRectangle {
     let mut c_pixels: Vec<u8> = vec![];
-    for pixel in framebuffer.raw_pixels.chunks(4).collect::<Vec<&[u8]>>() {
-        /* CPIXELS are only three bytes */
-        c_pixels.push(pixel[0]);
-        c_pixels.push(pixel[1]);
-        c_pixels.push(pixel[2]);
+    if framebuffer.encoded_pixels.len() == 0 {
+        for pixel in framebuffer.raw_pixels.chunks((framebuffer.bits_per_pixel / 8) as usize).collect::<Vec<&[u8]>>() {
+            /* CPIXELS are only three bytes */
+            c_pixels.push(pixel[0]);
+            c_pixels.push(pixel[1]);
+            c_pixels.push(pixel[2]);
+        }
+    } else {
+        c_pixels = framebuffer.encoded_pixels.clone();
     }
 
     let encoded_tiles: Vec<u8>;
