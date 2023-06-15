@@ -30,7 +30,7 @@ use crate::server::{parser::GetBits, websocket::WSCreateOptions};
 use crate::win32;
 
 #[cfg(target_os = "linux")]
-use crate::{x11, debug};
+use crate::x11;
 
 use std::{error::Error, sync::Arc, process};
 use des::{Des, cipher::{KeyInit, generic_array::GenericArray, typenum, BlockDecrypt}};
@@ -290,7 +290,7 @@ async fn process_clientserver_message(
                             0,
                             x11_screen.width_in_pixels,
                             x11_screen.height_in_pixels,
-                            session
+                            client_rx.peer_addr().unwrap().to_string()
                         ),
                     )
                     .await;
@@ -337,7 +337,7 @@ async fn process_clientserver_message(
                             y_position as i16,
                             width,
                             height,
-                            session
+                            client_rx.peer_addr().unwrap().to_string()
                         ),
                     )
                     .await;
@@ -763,119 +763,87 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>, auth: Opt
 }
 
 pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
-    #[cfg(target_os = "windows")]
-    {
-        let win32_connection = win32::connect(options.spify_daemon);
-        if win32_connection.is_ok() {
-            /* Define Objects */
-            let wm_arc = win32_connection.unwrap();
-            let tcplistener_result = TcpListener::bind(options.ip_address).await;
+    let tcplistener_result = TcpListener::bind(options.ip_address).await;
+    if tcplistener_result.is_ok() {
+        let listener = tcplistener_result.unwrap();
+        let tcp_address = listener.local_addr().unwrap();
+        println!("SpifyRFB is accepting connections on {:?}\n", tcp_address);
+        
+        /* Define WindowManager Object */
+        #[allow(unused_assignments)]
+        let mut wm_arc: Option<Arc<WindowManager>> = Option::None;
 
-            if tcplistener_result.is_ok() {
-                let listener = tcplistener_result.unwrap();
-                let tcp_address = listener.local_addr().unwrap();
-                println!("SpifyRFB is accepting connections on {:?}\n", tcp_address);
-                
-                if options.spify_daemon {
-                    /* Send IP Address Update to Daemon */
-                    ipc_client::send_hello(
-                        format!("{}\r\n{}", process::id().to_string(), tcp_address)
-                    ).await;
-                }
-                
-                if options.ws_proxy.is_some() {
-                    /* Unwrap Proxy Parameters */
-                    let ws_proxy = options.ws_proxy.unwrap();
-                    let ws_tcp_address = ws_proxy.0;
-                    let ws_secure = ws_proxy.1;
+        if options.spify_daemon {
+            /* Send IP Address Update to Daemon */
+            ipc_client::send_hello(
+                format!("{}\r\n{}", process::id().to_string(), tcp_address)
+            ).await;
+        }
+        
+        if options.ws_proxy.is_some() {
+            /* Unwrap Proxy Parameters */
+            let ws_proxy = options.ws_proxy.unwrap();
+            let ws_tcp_address = ws_proxy.0;
+            let ws_secure = ws_proxy.1;
 
-                    let proxy_address = listener.local_addr().unwrap().to_string();
-                    tokio::spawn(async move {
-                        websocket::create(
-                            WSCreateOptions {
-                                tcp_address: ws_tcp_address,
-                                proxy_address,
-                                secure: ws_secure,
-                                spify_daemon: options.spify_daemon,
-                            }
-                        ).await.unwrap();
-                    });
-                }
+            let proxy_address = listener.local_addr().unwrap().to_string();
+            tokio::spawn(async move {
+                websocket::create(
+                    WSCreateOptions {
+                        tcp_address: ws_tcp_address,
+                        proxy_address,
+                        secure: ws_secure,
+                        spify_daemon: options.spify_daemon,
+                    }
+                ).await.unwrap();
+            });
+        }
 
-                loop {
-                    let (client, _) = listener.accept().await?;
-                    let wm = Arc::clone(&wm_arc);
-                    let auth_clone = options.auth.clone();
-
-                    tokio::spawn(async move {
-                        /* Init Handshake */
-                        println!("Connection Established: {:?}", client);
-                        init_handshake(client, wm, auth_clone).await;
-                    });
-                }     
+        #[cfg(target_os = "windows")]
+        {
+            let win32_connection = win32::connect(options.spify_daemon);
+            if win32_connection.is_ok() {
+                wm_arc = Option::Some(win32_connection.unwrap());
             } else {
-                let err = tcplistener_result.err().unwrap();
-                println!("IP Address Binding Failed -> {}", err.to_string());
-                return Err(err.into());
+                /* Return Win32 Connection Error */
+                return Err(String::from("Windows API Connection Error").into());
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let x11_connection = x11::connect();
+            if x11_connection.is_ok() {
+                wm_arc = Option::Some(x11_connection.unwrap());
+            } else {
+                /* Return X11 Connection Error */
+                return Err(String::from("X11 Connection Error").into());                    
+            }
+        }
+        
+        if wm_arc.is_some() {
+            /* Unwrap WindowManager Object */
+            let wm_arc = wm_arc.unwrap();
+
+            /* Accept All Incoming Connections */
+            loop {
+                let (client, _) = listener.accept().await?;
+                let wm = Arc::clone(&wm_arc);
+                let auth_clone = options.auth.clone();
+    
+                tokio::spawn(async move {
+                    /* Init Handshake */
+                    println!("Connection Established: {:?}", client);
+                    init_handshake(client, wm, auth_clone).await;
+                });
             }
         } else {
-            /* Return Win32 Connection Error */
-            return Err(String::from("Windows API Connection Error").into());
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        /* PERSISTENT X11 CONNECTION TO PREVENT A ZILLION CONNECTIONS ON CLIENT EVENTS */
-        /* TRY WAYLAND DETECTION */
-        let x11_connection = x11::connect();
-        if x11_connection.is_ok() {
-            /* Get WM and Listen on Port */
-            let wm_arc = x11_connection.unwrap();
-            let tcplistener_result = TcpListener::bind(tcp_address).await;
-
-            /* Check if TcpListener is Successful */
-            if tcplistener_result.is_ok() {
-                let listener = tcplistener_result.unwrap();
-                println!("SpifyRFB is accepting connections on {:?}\n", listener.local_addr().unwrap());
-                if ws_proxy.is_some() {
-                    /* Unwrap Proxy Parameters */
-                    let ws_proxy = ws_proxy.unwrap();
-                    let ws_tcp_address = ws_proxy.0;
-                    let ws_secure = ws_proxy.1;
-
-                    let proxy_address = listener.local_addr().unwrap().to_string();
-                    tokio::spawn(async move {
-                        websocket::create(ws_tcp_address, proxy_address, ws_secure).await.unwrap();
-                    });
-                }
-
-                loop {
-                    let (client, _) = listener.accept().await?;
-                    let wm = Arc::clone(&wm_arc);
-                    let auth_clone = auth.clone();
-                    tokio::spawn(async move {
-                        // Handle The Client
-                        session::new(client.peer_addr().unwrap().to_string(), SpifySession {
-                            zlib_stream: encoding_zlib::create_stream()
-                        });
-                        
-                        /* Init Handshake */
-                        println!("Connection Established: {:?}", client);
-                        init_handshake(client, wm, auth_clone).await;
-                    });
-                }                
-            } else {
-                /* Get Error */
-                let err = tcplistener_result.err().unwrap();
-
-                /* Debug */
-                debug::l1(format!("IP Address Binding Failed -> {}", err.to_string()));
-                return Err(err.into());
-            }
-        } else {
-            /* Return X11 Connection Error */
-            return Err(String::from("x11-server Connection Error").into());
-        }
+            /* WM Platform Not Supported */
+            return Err(String::from("Window Manager Platform Not Supported").into());
+        }           
+    } else {
+        let err = tcplistener_result.err().unwrap();
+        println!("IP Address Binding Failed -> {}", err.to_string());
+        return Err(err.into());
     }
 }

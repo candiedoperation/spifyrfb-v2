@@ -174,7 +174,7 @@ pub fn rectangle_framebuffer_update(
     y_position: i16,
     width: u16,
     height: u16,
-    session: String
+    zstream_id: String
 ) -> FrameBufferUpdate {
     let x11_cookie = xproto::get_image(
         &x11_server.connection,
@@ -220,11 +220,11 @@ pub fn rectangle_framebuffer_update(
         },
         RFBEncodingType::ZRLE => {
             framebuffer_struct.encoding = RFBEncodingType::ZRLE;
-            framebuffer_rectangles.push(encoding_zrle::get_pixel_data(framebuffer_struct, session));
+            framebuffer_rectangles.push(encoding_zrle::get_pixel_data(framebuffer_struct, zstream_id));
         },
         RFBEncodingType::ZLIB => {
             framebuffer_struct.encoding = RFBEncodingType::ZLIB;
-            framebuffer_rectangles.push(encoding_zlib::get_pixel_data(framebuffer_struct, session));
+            framebuffer_rectangles.push(encoding_zlib::get_pixel_data(framebuffer_struct, zstream_id));
         },
         RFBEncodingType::HEX_TILE => {
             framebuffer_struct.encoding = RFBEncodingType::HEX_TILE;
