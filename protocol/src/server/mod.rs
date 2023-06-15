@@ -265,6 +265,7 @@ async fn process_clientserver_message(
                     write_framebuffer_update_message(
                         client_tx,
                         win32::rectangle_framebuffer_update(
+                            win32_server,
                             win32_monitor.clone(),
                             RFBEncodingType::RAW,
                             0,
@@ -312,6 +313,7 @@ async fn process_clientserver_message(
                     write_framebuffer_update_message(
                         client_tx,
                         win32::rectangle_framebuffer_update(
+                            win32_server,
                             win32_server.monitors[0].clone(),
                             RFBEncodingType::ZRLE,
                             x_position as i16,
@@ -763,7 +765,7 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>, auth: Opt
 pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "windows")]
     {
-        let win32_connection = win32::connect();
+        let win32_connection = win32::connect(options.spify_daemon);
         if win32_connection.is_ok() {
             /* Define Objects */
             let wm_arc = win32_connection.unwrap();

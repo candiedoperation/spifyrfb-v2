@@ -66,7 +66,8 @@ pub struct Win32Monitor {
 
 pub struct Win32Server {
     pub(crate) monitors: Vec<Win32Monitor>,
-    keysym_vk_map: HashMap<u32, Win32_KeyboardAndMouse::VIRTUAL_KEY>
+    keysym_vk_map: HashMap<u32, Win32_KeyboardAndMouse::VIRTUAL_KEY>,
+    spify_daemon: bool
 }
 
 pub struct Win32PointerEvent {
@@ -176,6 +177,7 @@ pub fn fire_pointer_event(
 }
 
 pub fn rectangle_framebuffer_update(
+    win32_server: &Win32Server,
     _win32_monitor: Win32Monitor, 
     encoding_type: i32,
     x_position: i16,
@@ -186,17 +188,17 @@ pub fn rectangle_framebuffer_update(
 ) -> FrameBufferUpdate {
     unsafe {
         /* Get Desktop User is currently seeing */
-        let input_desktop = Win32_StationsAndDesktops::OpenInputDesktop(
-            Win32_StationsAndDesktops::DESKTOP_CONTROL_FLAGS(0), /* Prevent Processes in Other Accounts to set Hooks */ 
-            Win32_Foundation::FALSE, /* Processes Spawn Don't Inherit */
-            Win32_StationsAndDesktops::DESKTOP_ACCESS_FLAGS(Win32_Foundation::GENERIC_ALL.0)
-        );
-
-        if input_desktop.is_ok() {
-            let input_desktop = input_desktop.unwrap();
-            Win32_StationsAndDesktops::SetThreadDesktop(input_desktop);
-        } else {
-            println!("FAILURE: {:?}", input_desktop.err().unwrap());
+        if win32_server.spify_daemon == true {
+            let input_desktop = Win32_StationsAndDesktops::OpenInputDesktop(
+                Win32_StationsAndDesktops::DESKTOP_CONTROL_FLAGS(0), /* Prevent Processes in Other Accounts to set Hooks */ 
+                Win32_Foundation::FALSE, /* Processes Spawn Don't Inherit */
+                Win32_StationsAndDesktops::DESKTOP_ACCESS_FLAGS(Win32_Foundation::GENERIC_ALL.0)
+            );
+    
+            if input_desktop.is_ok() {
+                let input_desktop = input_desktop.unwrap();
+                Win32_StationsAndDesktops::SetThreadDesktop(input_desktop);
+            }
         }
 
         /* Initiate Screen Capture */
@@ -320,7 +322,7 @@ pub fn get_display_struct(win32_monitor: Win32Monitor) -> server::RFBServerInit 
     }
 }
 
-pub fn connect() -> Result<Arc<WindowManager>, String> {
+pub fn connect(spify_daemon: bool) -> Result<Arc<WindowManager>, String> {
     unsafe {
         static mut WIN32_MONITORS: Vec<Win32Monitor> = vec![];
         unsafe extern "system" fn display_monitors(monitor_handle: Win32_Gdi::HMONITOR, _device_context: Win32_Gdi::HDC, _bound_rect: *mut Win32_Foundation::RECT,_app_data: Win32_Foundation::LPARAM) -> BOOL {
@@ -380,7 +382,8 @@ pub fn connect() -> Result<Arc<WindowManager>, String> {
                 let keysym_vk_map = keycodes::create_keysym_vk_map();
                 return Ok(Arc::from(WindowManager::WIN32(Win32Server {
                     monitors: WIN32_MONITORS.to_vec(),
-                    keysym_vk_map
+                    keysym_vk_map,
+                    spify_daemon
                 })));
             },
             _ => {

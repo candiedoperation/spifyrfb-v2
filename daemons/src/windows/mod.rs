@@ -77,6 +77,7 @@ pub async fn create() {
     unsafe {
         /* Register for IPC Communication Events */
         event::register(IpcEvent::HELLO, process_hello).await;
+        event::register(IpcEvent::IP_UPDATE, process_ipupdate).await;
         event::register(IpcEvent::DISCONNECT, process_disconnect).await;
 
         tokio::spawn(async {
@@ -93,6 +94,10 @@ pub async fn create() {
         /* DISPATCH THE SERVICE */
         Win32_Services::StartServiceCtrlDispatcherW(&service_start_table);
     }
+}
+
+fn process_ipupdate(data: String) {
+    
 }
 
 fn process_hello(data: String) {
