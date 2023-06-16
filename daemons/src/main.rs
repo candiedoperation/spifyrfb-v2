@@ -17,9 +17,15 @@
 */
 
 use std::env;
+use spifyrfb_daemon::webapi;
 
 #[tokio::main]
 async fn main() {
+    /* Spawn WebAPI Service */
+    tokio::spawn(async {
+        webapi::create().await;
+    });
+
     match env::consts::OS {
         "windows" => {
             #[cfg(target_os = "windows")]

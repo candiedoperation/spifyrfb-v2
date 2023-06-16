@@ -18,18 +18,16 @@
 
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::fs;
 use std::mem;
 use std::ptr;
 use std::sync::RwLock;
 
 use once_cell::sync::Lazy;
-use windows::Win32::System::RemoteDesktop::WTSEnumerateSessionsW;
-use windows::Win32::System::RemoteDesktop::WTSQuerySessionInformationW;
 use windows::core as Win32_Core;
 use windows::Win32::Security as Win32_Security;
 use windows::Win32::Foundation as Win32_Foundation;
 use windows::Win32::System::Services as Win32_Services;
+use windows::Win32::Networking::WinSock as Win32_WinSock;
 use windows::Win32::System::Threading as Win32_Threading;
 use windows::Win32::System::RemoteDesktop as Win32_RemoteDesktop;
 use windows::Win32::System::Diagnostics::ToolHelp as Win32_ToolHelp;
@@ -39,6 +37,8 @@ use crate::debug;
 use crate::ipc_server;
 use crate::ipc_server::IpcEvent;
 use crate::ipc_server::event;
+use crate::webapi;
+use crate::webapi::WebApiSession;
 
 struct SpifyRFBService;
 impl SpifyRFBService {
@@ -73,6 +73,45 @@ impl ToU16Vec for String {
 static mut SERVICE_HANDLER: Win32_Services::SERVICE_STATUS_HANDLE = Win32_Services::SERVICE_STATUS_HANDLE(0);
 static WTS_SESSIONS: Lazy<RwLock<HashMap<u32, SpifyRFBProtocolInstance>>> = Lazy::new(|| { RwLock::new(HashMap::new()) } );
 static DAEMON_LISTENIP: Lazy<String> = Lazy::new(|| { String::from("127.0.0.1:39281") });
+
+pub(crate) fn webapi_getsessions() -> Vec<webapi::WebApiSession> {
+    let wts_session_lock = WTS_SESSIONS.read().unwrap();
+    let mut webapi_sessions = vec![];
+
+    for wts_session in wts_session_lock.values() {
+        let domain = wts_session.wts_info.Domain.clone();
+        let username = wts_session.wts_info.UserName.clone();
+        
+        /* Remove Null Termination in domain and username */
+        let valid_domain = domain.iter().position(|&c| c == '\u{0000}' as u16 ).unwrap_or(domain.len());
+        let valid_uname = username.iter().position(|&c| c == '\u{0000}' as u16 ).unwrap_or(username.len());
+
+        webapi_sessions.push(
+            WebApiSession {
+                ip: wts_session.ip.clone(),
+                ws: wts_session.ws.clone(),
+                ws_secure: wts_session.ws_secure,
+                username: format!(
+                    "{} ({})",
+                    String::from_utf16_lossy(&username[..valid_uname]),
+                    String::from_utf16_lossy(&domain[..valid_domain])
+                ),
+            }
+        );
+    }
+
+    /* Send Sessions */
+    return webapi_sessions;
+}
+
+pub(crate) fn get_hostname() -> String {
+    unsafe {
+        let mut hostname: [u16; 15] = [0; 15];
+        Win32_WinSock::GetHostNameW(&mut hostname);
+        let valid_hostname = hostname.iter().position(|&c| c as u8 == b'\0' ).unwrap_or(hostname.len());
+        String::from_utf16_lossy(&hostname[0..valid_hostname])
+    }
+}
 
 pub async fn create() {
     unsafe {
@@ -145,7 +184,7 @@ unsafe fn get_wts_session_info(session_id: u32) -> Win32_RemoteDesktop::WTSINFOW
     let mut session_info_ptr: Win32_Core::PWSTR = Win32_Core::PWSTR(ptr::null_mut());
     let mut session_info_bytes: u32 = 0;
 
-    WTSQuerySessionInformationW(
+    Win32_RemoteDesktop::WTSQuerySessionInformationW(
         Win32_RemoteDesktop::WTS_CURRENT_SERVER_HANDLE, 
         session_id, 
         Win32_RemoteDesktop::WTSSessionInfo, 
@@ -201,7 +240,7 @@ unsafe extern "system" fn start(_args_count: u32, _args_vector: *mut Win32_Core:
             let mut wts_sessions: *mut Win32_RemoteDesktop::WTS_SESSION_INFOW = ptr::null_mut();
             let mut wts_sessions_length: u32 = 0;
 
-            let sessions_result = WTSEnumerateSessionsW(
+            let sessions_result = Win32_RemoteDesktop::WTSEnumerateSessionsW(
                 Win32_RemoteDesktop::WTS_CURRENT_SERVER_HANDLE, 
                 0, /* Reserved Parameter must be 0 */
                 1, /* Version Parameter must be 1 */
