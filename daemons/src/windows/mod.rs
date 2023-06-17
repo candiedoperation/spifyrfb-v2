@@ -86,16 +86,24 @@ pub(crate) fn webapi_getsessions() -> Vec<webapi::WebApiSession> {
         let valid_domain = domain.iter().position(|&c| c == '\u{0000}' as u16 ).unwrap_or(domain.len());
         let valid_uname = username.iter().position(|&c| c == '\u{0000}' as u16 ).unwrap_or(username.len());
 
+        let formatted_username: String;
+        let domain_string = String::from_utf16_lossy(&domain[..valid_domain]);
+        if domain_string.eq_ignore_ascii_case(get_hostname().as_str()) == false {
+            formatted_username = format!(
+                "{} ＠ {}",
+                String::from_utf16_lossy(&username[..valid_uname]),
+                String::from_utf16_lossy(&domain[..valid_domain])
+            );
+        } else {
+            formatted_username = String::from_utf16_lossy(&username[..valid_uname]);
+        }
+
         webapi_sessions.push(
             WebApiSession {
                 ip: wts_session.ip.clone(),
                 ws: wts_session.ws.clone(),
                 ws_secure: wts_session.ws_secure,
-                username: format!(
-                    "{} ({})",
-                    String::from_utf16_lossy(&username[..valid_uname]),
-                    String::from_utf16_lossy(&domain[..valid_domain])
-                ),
+                username: formatted_username,
             }
         );
     }
@@ -147,11 +155,11 @@ fn process_ipupdate(data: String) {
 
     if spawnparameters.is_some() {
         let spawnparameters = spawnparameters.unwrap();
-        if update.starts_with("ws") {
+        if update == "ws" {
             let ws_ip = data[2];
             spawnparameters.ws = ws_ip.to_string();
             spawnparameters.ws_secure = false;
-        } else if update.starts_with("wss") {
+        } else if update == "wss" {
             let wss_ip = data[2];
             spawnparameters.ws = wss_ip.to_string();
             spawnparameters.ws_secure = true;
@@ -391,7 +399,7 @@ fn spawn_spifyrfb_protcol(session_id: u32) -> Win32_Threading::PROCESS_INFORMATI
         startup_info.lpDesktop = Win32_Core::PWSTR::from_raw(lp_desktop.as_mut_ptr());
 
         /* Create App Path String, Set Console Visibility Based on Debug Flag */
-        let app_path = format!("spifyrfb-protocol.exe --ip=0.0.0.0:0 --ws=0.0.0.0:0 --spify-daemon={}\0", DAEMON_LISTENIP.to_string());
+        let app_path = format!("spifyrfb-protocol.exe --ip=0.0.0.0:0 --wss=0.0.0.0:0 --spify-daemon={}\0", DAEMON_LISTENIP.to_string());
         let dw_creationflags = if debug::ENABLED == true {
             Win32_Threading::NORMAL_PRIORITY_CLASS
         } else {

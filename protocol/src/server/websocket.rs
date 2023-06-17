@@ -17,7 +17,7 @@
 */
 
 use crate::{debug, server::{parser, ipc_client}};
-use std::{error::Error, time::Duration, sync::Arc, pin::Pin, process};
+use std::{error::Error, time::Duration, sync::Arc, pin::Pin, process, env};
 use super::parser::{websocket::OPCODE, GetBits};
 use rustls::ServerConfig;
 use tokio::{
@@ -386,13 +386,32 @@ pub async fn create(options: WSCreateOptions) -> Result<(), Box<dyn Error>> {
             let mut tls_acceptor: Option<TlsAcceptor> = Option::None;
 
             if options.secure == true {
+                let mut spify_installpath = env::current_exe().unwrap();
+                spify_installpath.pop();
+                spify_installpath.push("ssl");
+                spify_installpath.push("cert");
+
+                /* 
+                    We added an extra directory 'cert' as
+                    Rust pops the last element in the path
+                    when set_file_name() is invoked.
+                */
+
+                spify_installpath.set_file_name("cert.pem");
+                let certificate_path = spify_installpath.clone();
+                let certificate_path = certificate_path.to_str().unwrap();
+
+                spify_installpath.set_file_name("key.pem");
+                let key_path = spify_installpath.clone();
+                let key_path = key_path.to_str().unwrap();
+
                 tls_serverconfig = Option::Some(
                     ServerConfig::builder()
                     .with_safe_defaults()
                     .with_no_client_auth()
                     .with_single_cert(
-                        parser::tls::load_certificates("ssl/cert.pem"),
-                        parser::tls::load_privatekey("ssl/key.pem")
+                        parser::tls::load_certificates(certificate_path),
+                        parser::tls::load_privatekey(key_path)
                     )
                     .unwrap()
                 );

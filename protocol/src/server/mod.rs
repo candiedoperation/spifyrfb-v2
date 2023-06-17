@@ -788,11 +788,20 @@ pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
             let ws_secure = ws_proxy.1;
 
             let proxy_address = listener.local_addr().unwrap().to_string();
+            let proxy_address_array: Vec<&str> = proxy_address.split(":").collect();
+            let proxy_address_parsed: String;
+
+            if proxy_address_array[0] == "0.0.0.0" {
+                proxy_address_parsed = format!("localhost:{}", proxy_address_array[1]);
+            } else {
+                proxy_address_parsed = proxy_address;
+            }
+
             tokio::spawn(async move {
                 websocket::create(
                     WSCreateOptions {
                         tcp_address: ws_tcp_address,
-                        proxy_address,
+                        proxy_address: proxy_address_parsed,
                         secure: ws_secure,
                         spify_daemon: options.spify_daemon,
                     }
