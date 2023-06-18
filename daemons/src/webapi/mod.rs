@@ -26,7 +26,8 @@ pub struct WebApiSession {
     pub(crate) ip: String,
     pub(crate) ws: String,
     pub(crate) ws_secure: bool,
-    pub(crate) username: String
+    pub(crate) username: String,
+    pub(crate) logontime: i64
 }
 
 fn get_routes() -> Router {

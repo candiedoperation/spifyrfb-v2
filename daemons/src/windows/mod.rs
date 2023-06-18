@@ -104,6 +104,7 @@ pub(crate) fn webapi_getsessions() -> Vec<webapi::WebApiSession> {
                 ws: wts_session.ws.clone(),
                 ws_secure: wts_session.ws_secure,
                 username: formatted_username,
+                logontime: (wts_session.wts_info.ConnectTime / 10000000 - 11644473600)
             }
         );
     }
