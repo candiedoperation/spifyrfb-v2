@@ -24,6 +24,7 @@ use windows::core as Win32_Core;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::Graphics::Gdi as Win32_Gdi;
 use windows::Win32::Foundation as Win32_Foundation;
+use windows::Win32::System::Shutdown as Win32_Shutdown;
 use windows::Win32::Networking::WinSock as Win32_WinSock;
 use windows::Win32::UI::WindowsAndMessaging as Win32_WindowsAndMessaging;
 use windows::Win32::UI::Input::KeyboardAndMouse as Win32_KeyboardAndMouse;
@@ -87,6 +88,39 @@ pub struct Win32PointerEvent {
 
 /* Define BPP Constant */
 const WIN32_BITS_PER_PIXEL: u8 = 32;
+
+pub fn lock_workstation() -> bool {
+    unsafe {
+        Win32_Shutdown::LockWorkStation().as_bool()
+    }
+}
+
+pub fn logoff() -> bool {
+    unsafe {
+        Win32_Shutdown::ExitWindowsEx(
+            Win32_Shutdown::EXIT_WINDOWS_FLAGS(Win32_Shutdown::EWX_LOGOFF.0 | Win32_WindowsAndMessaging::EWX_FORCEIFHUNG), 
+            Win32_Shutdown::SHTDN_REASON_MINOR_TERMSRV
+        ).as_bool()
+    }
+}
+
+pub fn shutdown() -> bool {
+    unsafe {
+        Win32_Shutdown::ExitWindowsEx(
+            Win32_Shutdown::EXIT_WINDOWS_FLAGS(Win32_Shutdown::EWX_SHUTDOWN.0 | Win32_WindowsAndMessaging::EWX_FORCEIFHUNG), 
+            Win32_Shutdown::SHTDN_REASON_MINOR_TERMSRV
+        ).as_bool()
+    }
+}
+
+pub fn restart() -> bool {
+    unsafe {
+        Win32_Shutdown::ExitWindowsEx(
+            Win32_Shutdown::EXIT_WINDOWS_FLAGS(Win32_Shutdown::EWX_REBOOT.0 | Win32_WindowsAndMessaging::EWX_FORCEIFHUNG), 
+            Win32_Shutdown::SHTDN_REASON_MINOR_TERMSRV
+        ).as_bool()
+    }
+}
 
 pub fn fire_key_event(
     win32_server: &Win32Server,

@@ -381,6 +381,32 @@ fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
                 ]
                 .to_vec()
             );
+        } else if uri.1.starts_with("/api/power") == true {
+            let mut status: bool = false;
+            if uri.1 == "/api/power/lock" {
+                #[cfg(target_os = "windows")]
+                { status = win32::lock_workstation(); }
+            } else if uri.1 == "/api/power/logoff" {
+                #[cfg(target_os = "windows")]
+                { status = win32::logoff() }
+            } else if uri.1 == "/api/power/shutdown" {
+                #[cfg(target_os = "windows")]
+                { status = win32::shutdown() }
+            } else if uri.1 == "/api/power/reboot" {
+                #[cfg(target_os = "windows")]
+                { status = win32::restart() }
+            }
+
+            let status = format!("{:?}", status);
+            api_response = parser::http::response_from_headers(
+                [
+                    "HTTP/1.1 200 OK",
+                    "Content-type: text/plain",
+                    "\n",
+                    &status
+                ]
+                .to_vec()
+            );
         } else if uri.1 == "/api/screenshot" {
             /* Verify Client Auth in Future */
             let mut framebufferupdate: FrameBufferUpdate = Default::default();
@@ -506,7 +532,7 @@ pub async fn create(options: WSCreateOptions) -> Result<(), Box<dyn Error>> {
 
                 tokio::spawn(async move {
                     /* Init Handshake */
-                    println!("Connection Established: {:?}", client);
+                    println!("HTTP/WS Connection Established: {:?}", client);
 
                     let ws_stream: WebsocketStream;
                     if tls_acceptor.is_some() {
