@@ -298,7 +298,7 @@ async fn handle_wsclient(mut ws_stream: WebsocketStream, proxy_address: String) 
     let handshake_request: Vec<&str> = handshake_request.split("\r\n").collect();
 
     /* Debugging */
-    debug::l1(format!("Request: {:?}", handshake_request));
+    //debug::l1(format!("Request: {:?}", handshake_request));
 
     let handshake_request_version = parser::http::get_version(handshake_request.clone());
     let handshake_request_method = parser::http::get_method(handshake_request.clone());
