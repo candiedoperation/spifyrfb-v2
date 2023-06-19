@@ -78,7 +78,8 @@ pub(crate) fn webapi_getsessions() -> Vec<webapi::WebApiSession> {
     let wts_session_lock = WTS_SESSIONS.read().unwrap();
     let mut webapi_sessions = vec![];
 
-    for wts_session in wts_session_lock.values() {
+    for pid in wts_session_lock.keys() {
+        let wts_session = &wts_session_lock[pid];
         let domain = wts_session.wts_info.Domain.clone();
         let username = wts_session.wts_info.UserName.clone();
         
@@ -100,11 +101,12 @@ pub(crate) fn webapi_getsessions() -> Vec<webapi::WebApiSession> {
 
         webapi_sessions.push(
             WebApiSession {
+                pid: pid.to_owned(),
                 ip: wts_session.ip.clone(),
                 ws: wts_session.ws.clone(),
                 ws_secure: wts_session.ws_secure,
                 username: formatted_username,
-                logontime: (wts_session.wts_info.ConnectTime / 10000000 - 11644473600)
+                logontime: (wts_session.wts_info.ConnectTime / 10000000 - 11644473600),
             }
         );
     }

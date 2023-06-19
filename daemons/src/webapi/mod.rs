@@ -23,6 +23,7 @@ use axum::{Router, routing::get, response::{Response, IntoResponse}, http::Statu
 
 #[derive(Serialize, Deserialize)]
 pub struct WebApiSession {
+    pub(crate) pid: u32,
     pub(crate) ip: String,
     pub(crate) ws: String,
     pub(crate) ws_secure: bool,

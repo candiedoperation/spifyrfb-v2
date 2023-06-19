@@ -139,6 +139,8 @@ impl GetBits for u64 {
 }
 
 pub mod http {
+    use std::fs;
+
     /* Define Globals */
     const HTTP_METHODS: [&str; 2] = ["GET", "POST"];
 
@@ -177,6 +179,22 @@ pub mod http {
         http_method
     }
 
+    pub fn get_request_uri(http_request: Vec<&str>) -> (String, String) {
+        let mut http_method: String = String::from("");
+        let mut http_uri: String = String::from("");
+
+        for header in http_request {
+            let header_parts: Vec<&str> = header.split(" ").collect();
+            if HTTP_METHODS.contains(&header_parts[0]) {
+                http_method = header_parts[0].to_string();
+                http_uri = header_parts[1].to_string();
+                break;
+            }
+        }
+
+        (http_method, http_uri)
+    }
+
     pub fn get_websocket_version(http_request: Vec<&str>) -> u8 {
         let mut websocket_version: String = String::from("");
         for header in http_request {
@@ -213,8 +231,6 @@ pub mod http {
             http_response.push_str(format!("{}\r\n", header).as_str());
         }
 
-        /* Add final \r\n to indicate response end */
-        http_response.push_str("\r\n");
         http_response
     }
 }

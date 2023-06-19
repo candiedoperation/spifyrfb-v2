@@ -141,7 +141,7 @@ pub struct FrameBuffer {
     pub(crate) encoded_pixels: Vec<u8>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct FrameBufferUpdate {
     pub(crate) message_type: u8,
     pub(crate) padding: u8,
@@ -771,8 +771,7 @@ pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
         println!("SpifyRFB is accepting connections on {:?}\n", tcp_address);
         
         /* Define WindowManager Object */
-        #[allow(unused_assignments)]
-        let mut wm_arc: Option<Arc<WindowManager>> = Option::None;
+        let wm_arc: Option<Arc<WindowManager>>;
 
         if options.spify_daemon {
             /* Send IP Address Update to Daemon */

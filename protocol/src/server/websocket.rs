@@ -16,9 +16,9 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{debug, server::{parser, ipc_client}};
-use std::{error::Error, time::Duration, sync::Arc, pin::Pin, process, env};
-use super::parser::{websocket::OPCODE, GetBits};
+use crate::{debug, server::{parser, ipc_client}, win32};
+use std::{error::Error, time::Duration, sync::Arc, pin::Pin, process, env, fs};
+use super::{parser::{websocket::OPCODE, GetBits}, FrameBufferUpdate, WindowManager, RFBEncodingType};
 use rustls::ServerConfig;
 use tokio::{
     io::{self, AsyncReadExt, AsyncWriteExt, AsyncRead, AsyncWrite},
@@ -318,31 +318,22 @@ async fn handle_wsclient(mut ws_stream: WebsocketStream, proxy_address: String) 
                 "Connection: Upgrade",
                 format!("Sec-WebSocket-Accept: {}", websocket_accept_key).as_str(),
             ]
-            .to_vec(),
+            .to_vec()
         );
 
         /* Send Response and Complete Handshake */
         ws_stream.write(handshake_response.as_bytes()).await.unwrap();
+        ws_stream.write(b"\r\n").await.unwrap();
 
         /* Handshake Response Sent, Proceed Further */
         proxy_websocket(ws_stream, proxy_address).await;
     } else {
         if handshake_websocket_version == 0 {
             /* This is not a Websocket Upgrade Request: See parser.rs */
-            let response_message = "<h1>SpifyRFB Websocket Service</h1><p>Apps like noVNC can interpret this page</p> ";
-            let handshake_response = parser::http::response_from_headers(
-                [
-                    "HTTP/1.1 200 OK",
-                    format!("Content-length: {}", response_message.as_bytes().len()).as_str(),
-                    "Content-type: text/html",
-                    "\n",
-                    response_message
-                ]
-                .to_vec(),
-            );
-    
-            /* Send Response and Complete Handshake */
-            ws_stream.write_all(handshake_response.as_bytes()).await.unwrap();
+            let api_response = get_api_response(parser::http::get_request_uri(handshake_request.clone()));
+            ws_stream.write_all(api_response.0.as_bytes()).await.unwrap();
+            ws_stream.write_all("\r\n".as_bytes()).await.unwrap();
+            ws_stream.write_all(&api_response.1).await.unwrap();
         } else {
             /* Send 400 (Bad Request) */
             let response_message = "Websocket/HTTP Versions Unsupported";
@@ -354,13 +345,99 @@ async fn handle_wsclient(mut ws_stream: WebsocketStream, proxy_address: String) 
                     "\n",
                     response_message
                 ]
-                .to_vec(),
+                .to_vec()
             );
     
             /* Send Response and Complete Handshake */
             ws_stream.write_all(handshake_response.as_bytes()).await.unwrap();
+            ws_stream.write(b"\r\n").await.unwrap();
         }
     }
+}
+
+fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
+    let mut payload: Vec<u8> = vec![];
+    let default_message = format!("{} was not found  ", uri.1);
+    let mut api_response: String = parser::http::response_from_headers(
+        [
+            "HTTP/1.1 404 Not Found",
+            format!("Content-length: {}", default_message.as_bytes().len()).as_str(),
+            "Content-type: text/plain",
+            "\n",
+            default_message.as_str()
+        ].to_vec()
+    );
+
+    if uri.0 == "GET" {
+        if uri.1 == "/" {
+            let response_message = "<h1>SpifyRFB Websocket Service</h1><p>Apps like noVNC can interpret this page</p> ";
+            api_response = parser::http::response_from_headers(
+                [
+                    "HTTP/1.1 200 OK",
+                    format!("Content-length: {}", response_message.as_bytes().len()).as_str(),
+                    "Content-type: text/html",
+                    "\n",
+                    response_message
+                ]
+                .to_vec()
+            );
+        } else if uri.1 == "/api/screenshot" {
+            /* Verify Client Auth in Future */
+            let mut framebufferupdate: FrameBufferUpdate = Default::default();
+
+            #[cfg(target_os = "windows")]
+            {
+                let win32_connection = win32::connect(true);
+                if win32_connection.is_ok() {
+                    let wm_arc = win32_connection.unwrap();
+                    match wm_arc.as_ref() {
+                        WindowManager::WIN32(win32_server) => {
+                            let primary_display = win32_server.monitors[0].clone();
+                            framebufferupdate = win32::rectangle_framebuffer_update(
+                                win32_server, 
+                                primary_display.clone(), 
+                                RFBEncodingType::RAW, 
+                                0, 
+                                0, 
+                                primary_display.monitor_devmode.dmPelsWidth as u16, 
+                                primary_display.monitor_devmode.dmPelsHeight as u16, 
+                                String::from("webapi")
+                            );
+                        }
+                    }
+                }
+            }
+
+            let framebuffer_rect = &framebufferupdate.frame_buffer[0];            
+            let mut png_data: Vec<u8> = Vec::new();
+
+            let mut encoder = png::Encoder::new(
+                &mut png_data, 
+                framebuffer_rect.width as u32, 
+                framebuffer_rect.height as u32
+            );
+
+            /* Set Encoder Parameters */
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+
+            /* Define a PngWriter */
+            let mut png_writer = encoder.write_header().unwrap();
+            png_writer.write_image_data(&framebuffer_rect.encoded_pixels.clone()).unwrap();
+            png_writer.finish().unwrap();
+
+            /* Update */
+            payload = png_data;
+            api_response = parser::http::response_from_headers([
+                "HTTP/1.1 200 OK",
+                format!("Content-length: {}", payload.len()).as_str(),
+                "Content-type: image/png",
+            ].to_vec());
+        }
+    }
+
+    /* Return API Response */
+    (api_response, payload)
 }
 
 pub async fn create(options: WSCreateOptions) -> Result<(), Box<dyn Error>> {

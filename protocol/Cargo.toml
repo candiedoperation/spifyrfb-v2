@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 des = { workspace = true }
+png = { workspace = true }
 sha1 = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true }
