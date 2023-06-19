@@ -106,18 +106,24 @@ pub fn logoff() -> bool {
 
 pub fn shutdown() -> bool {
     unsafe {
-        Win32_Shutdown::ExitWindowsEx(
-            Win32_Shutdown::EXIT_WINDOWS_FLAGS(Win32_Shutdown::EWX_SHUTDOWN.0 | Win32_WindowsAndMessaging::EWX_FORCEIFHUNG), 
-            Win32_Shutdown::SHTDN_REASON_MINOR_TERMSRV
+        Win32_Shutdown::InitiateSystemShutdownW(
+            Option::None, 
+            Option::None, 
+            0, 
+            Win32_Foundation::TRUE, 
+            Win32_Foundation::FALSE
         ).as_bool()
     }
 }
 
 pub fn restart() -> bool {
     unsafe {
-        Win32_Shutdown::ExitWindowsEx(
-            Win32_Shutdown::EXIT_WINDOWS_FLAGS(Win32_Shutdown::EWX_REBOOT.0 | Win32_WindowsAndMessaging::EWX_FORCEIFHUNG), 
-            Win32_Shutdown::SHTDN_REASON_MINOR_TERMSRV
+        Win32_Shutdown::InitiateSystemShutdownW(
+            Option::None, 
+            Option::None, 
+            0, 
+            Win32_Foundation::TRUE, 
+            Win32_Foundation::TRUE
         ).as_bool()
     }
 }
