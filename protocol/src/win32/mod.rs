@@ -23,9 +23,11 @@ use std::sync::Arc;
 use windows::core as Win32_Core;
 use windows::Win32::Foundation::BOOL;
 use windows::Win32::Graphics::Gdi as Win32_Gdi;
+use windows::Win32::Security as Win32_Security;
 use windows::Win32::Foundation as Win32_Foundation;
 use windows::Win32::System::Shutdown as Win32_Shutdown;
 use windows::Win32::Networking::WinSock as Win32_WinSock;
+use windows::Win32::System::Threading as Win32_Threading;
 use windows::Win32::UI::WindowsAndMessaging as Win32_WindowsAndMessaging;
 use windows::Win32::UI::Input::KeyboardAndMouse as Win32_KeyboardAndMouse;
 use windows::Win32::System::StationsAndDesktops as Win32_StationsAndDesktops;
@@ -106,25 +108,59 @@ pub fn logoff() -> bool {
 
 pub fn shutdown() -> bool {
     unsafe {
-        Win32_Shutdown::InitiateSystemShutdownW(
-            Option::None, 
-            Option::None, 
-            0, 
-            Win32_Foundation::TRUE, 
-            Win32_Foundation::FALSE
+        get_exitwindows_priviledge();
+        Win32_Shutdown::ExitWindowsEx(
+            Win32_Shutdown::EXIT_WINDOWS_FLAGS(Win32_Shutdown::EWX_SHUTDOWN.0 | Win32_WindowsAndMessaging::EWX_FORCEIFHUNG), 
+            Win32_Shutdown::SHTDN_REASON_MINOR_TERMSRV
         ).as_bool()
     }
 }
 
 pub fn restart() -> bool {
     unsafe {
-        Win32_Shutdown::InitiateSystemShutdownW(
-            Option::None, 
-            Option::None, 
-            0, 
-            Win32_Foundation::TRUE, 
-            Win32_Foundation::TRUE
+        get_exitwindows_priviledge();
+        Win32_Shutdown::ExitWindowsEx(
+            Win32_Shutdown::EXIT_WINDOWS_FLAGS(Win32_Shutdown::EWX_REBOOT.0 | Win32_WindowsAndMessaging::EWX_FORCEIFHUNG), 
+            Win32_Shutdown::SHTDN_REASON_MINOR_TERMSRV
         ).as_bool()
+    }
+}
+
+fn get_exitwindows_priviledge() {
+    unsafe {
+        /* Enable SE_SHUTDOWN_NAME Priviledge, If disabled */
+        let mut token_handle= Win32_Foundation::HANDLE::default();
+        let mut token_luid = Win32_Foundation::LUID::default();
+        Win32_Threading::OpenProcessToken(
+            Win32_Threading::GetCurrentProcess(), 
+            Win32_Security::TOKEN_ADJUST_PRIVILEGES, 
+            &mut token_handle
+        );
+
+        /* Get SE_SHUTDOWN_NAME Priv Val */
+        Win32_Security::LookupPrivilegeValueW(
+            Option::None, 
+            Win32_Security::SE_SHUTDOWN_NAME, 
+            &mut token_luid
+        );
+
+        /* Define Token Privileges */
+        let token_privileges = Win32_Security::TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [Win32_Security::LUID_AND_ATTRIBUTES {
+                Luid: token_luid,
+                Attributes: Win32_Security::SE_PRIVILEGE_ENABLED,
+            }],
+        };
+
+        Win32_Security::AdjustTokenPrivileges(
+            token_handle, 
+            Win32_Foundation::FALSE, 
+            Option::Some(&token_privileges), 
+            0, 
+            Option::None, 
+            Option::None
+        );        
     }
 }
 
