@@ -20,18 +20,7 @@ use crate::server::encoding_zlib::deflate;
 use super::{FrameBuffer, FrameBufferRectangle};
 
 pub fn get_pixel_data(framebuffer: FrameBuffer, stream_id: String) -> FrameBufferRectangle {
-    let mut c_pixels: Vec<u8> = vec![];
-    if framebuffer.encoded_pixels.len() == 0 {
-        for pixel in framebuffer.raw_pixels.chunks((framebuffer.bits_per_pixel / 8) as usize).collect::<Vec<&[u8]>>() {
-            /* CPIXELS are only three bytes */
-            c_pixels.push(pixel[0]);
-            c_pixels.push(pixel[1]);
-            c_pixels.push(pixel[2]);
-        }
-    } else {
-        c_pixels = framebuffer.encoded_pixels.clone();
-    }
-
+    let c_pixels: Vec<u8> = framebuffer.encoded_pixels.clone();
     let encoded_tiles: Vec<u8>;
     if framebuffer.width > 0 && framebuffer.height > 0 {
         encoded_tiles = encode(FrameBuffer {
@@ -63,6 +52,9 @@ fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
     hscan_lines = framebuffer.encoded_pixels.chunks_exact((framebuffer.width * bytes_per_cpixel) as usize).collect();
 
     for zrletile_ctr in 0..(v_tiles * h_tiles) {
+        let mut previous_scan_line: Vec<u8> = vec![];
+        let mut solid_tile = true;
+
         let mut tile_pixels: Vec<u8> = Vec::with_capacity(
             (ZRLE_TILE_WIDTH * ZRLE_TILE_HEIGHT) as usize
              * bytes_per_cpixel as usize
@@ -81,15 +73,28 @@ fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
             if (h_start + (ZRLE_TILE_HEIGHT as usize * bytes_per_cpixel as usize)) > hscan_lines[hscan_line_ctr].len() { hscan_lines[hscan_line_ctr].len() } 
             else { h_start + (ZRLE_TILE_HEIGHT as usize * bytes_per_cpixel as usize) };
 
-            tile_pixels.extend_from_slice(&hscan_lines[hscan_line_ctr][
-                h_start..h_end
-            ]);
+            let scan_line = &hscan_lines[hscan_line_ctr][h_start..h_end];
+            tile_pixels.extend_from_slice(scan_line);
+
+            if previous_scan_line.len() == 0 {
+                /* This is the first Line */
+                previous_scan_line = scan_line.to_vec();
+            } else {
+                if scan_line != previous_scan_line {
+                    /* This is not a Solid Tile */
+                    solid_tile = false;
+                }
+            }
         }
 
-        let solid_zrletile = solid_zrletile_color(tile_pixels.clone(), bytes_per_cpixel as usize);
-        if solid_zrletile.0 == true {
+        if solid_tile == true {
+            let mut solid_color: Vec<u8> = vec![];
+            for subpixel in 0..(bytes_per_cpixel as usize) {
+                solid_color.push(tile_pixels[subpixel]);
+            }
+
             zrle_tiles.push(1_u8);
-            zrle_tiles.extend_from_slice(solid_zrletile.1.as_slice());
+            zrle_tiles.extend_from_slice(&solid_color);
         } else {
             zrle_tiles.push(0_u8);
             zrle_tiles.extend_from_slice(tile_pixels.as_slice());
@@ -98,23 +103,4 @@ fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
 
     /* Send Compressed Tiles */
     zrle_tiles
-}
-
-fn solid_zrletile_color(tile: Vec<u8>, bytes_per_pixel: usize) -> (bool, Vec<u8>) {
-    let tile_chunks: Vec<&[u8]> = tile.chunks(bytes_per_pixel).collect();
-    let initial_color = tile_chunks[0];
-    let mut solid_color: bool = true;
-
-    for tile_chunk in tile_chunks {
-        if tile_chunk != initial_color {
-            solid_color = false;
-            break;
-        }
-    }
-
-    if solid_color == true {
-        (true, initial_color.to_vec())
-    } else {
-        (false, Vec::with_capacity(1))
-    }
 }

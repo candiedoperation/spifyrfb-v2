@@ -419,6 +419,13 @@ fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
                     match wm_arc.as_ref() {
                         WindowManager::WIN32(win32_server) => {
                             let primary_display = win32_server.monitors[0].clone();
+                            let mut pixelformat = win32::get_pixelformat();
+
+                            /* Update Shifts in PixelFormat */
+                            pixelformat.red_shift = 0;
+                            pixelformat.green_shift = 8;
+                            pixelformat.blue_shift = 16;
+
                             framebufferupdate = win32::rectangle_framebuffer_update(
                                 win32_server, 
                                 primary_display.clone(), 
@@ -427,6 +434,7 @@ fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
                                 0, 
                                 primary_display.monitor_devmode.dmPelsWidth as u16, 
                                 primary_display.monitor_devmode.dmPelsHeight as u16, 
+                                pixelformat,
                                 String::from("webapi")
                             );
                         }
@@ -446,6 +454,7 @@ fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
             /* Set Encoder Parameters */
             encoder.set_color(png::ColorType::Rgba);
             encoder.set_depth(png::BitDepth::Eight);
+            encoder.set_compression(png::Compression::Best);
 
             /* Define a PngWriter */
             let mut png_writer = encoder.write_header().unwrap();

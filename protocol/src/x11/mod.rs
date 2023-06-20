@@ -128,39 +128,43 @@ pub fn fire_pointer_event(
     .unwrap();
 }
 
+pub fn get_pixelformat(x11_screen: Screen) -> server::PixelFormat {
+    PixelFormat {
+        bits_per_pixel: if x11_screen.root_depth == 24 {
+            32
+        } else {
+            x11_screen.root_depth
+        }, /* ADD ALPHA-CHANNEL IF TRUE-COLOR */
+        depth: x11_screen.root_depth,
+        big_endian_flag: 1,
+        true_color_flag: (x11_screen.root_depth == 24).into(),
+        red_max: if x11_screen.root_depth == 24 {
+            2_u16.pow(8) - 1
+        } else {
+            0
+        },
+        green_max: if x11_screen.root_depth == 24 {
+            2_u16.pow(8) - 1
+        } else {
+            0
+        },
+        blue_max: if x11_screen.root_depth == 24 {
+            2_u16.pow(8) - 1
+        } else {
+            0
+        },
+        red_shift: 0, /* COMMENT */
+        green_shift: 0,
+        blue_shift: 0,
+        padding: [0, 0, 0],
+    }
+}
+
 pub fn get_display_struct(x11_server: &X11Server, x11_screen: Screen) -> server::RFBServerInit {
     RFBServerInit {
         framebuffer_width: x11_screen.width_in_pixels,
         framebuffer_height: x11_screen.height_in_pixels,
-        server_pixelformat: PixelFormat {
-            bits_per_pixel: if x11_screen.root_depth == 24 {
-                32
-            } else {
-                x11_screen.root_depth
-            }, /* ADD ALPHA-CHANNEL IF TRUE-COLOR */
-            depth: x11_screen.root_depth,
-            big_endian_flag: 1,
-            true_color_flag: (x11_screen.root_depth == 24).into(),
-            red_max: if x11_screen.root_depth == 24 {
-                2_u16.pow(8) - 1
-            } else {
-                0
-            },
-            green_max: if x11_screen.root_depth == 24 {
-                2_u16.pow(8) - 1
-            } else {
-                0
-            },
-            blue_max: if x11_screen.root_depth == 24 {
-                2_u16.pow(8) - 1
-            } else {
-                0
-            },
-            red_shift: 0, /* COMMENT */
-            green_shift: 0,
-            blue_shift: 0,
-            padding: [0, 0, 0],
-        },
+        server_pixelformat: get_pixelformat(),
         name_length: (x11_server).connection.setup().vendor_len().into(),
         name_string: String::from_utf8(x11_server.connection.setup().clone().vendor).unwrap(),
     }
@@ -174,6 +178,7 @@ pub fn rectangle_framebuffer_update(
     y_position: i16,
     width: u16,
     height: u16,
+    pixelformat: PixelFormat,
     zstream_id: String
 ) -> FrameBufferUpdate {
     let x11_cookie = xproto::get_image(

@@ -56,7 +56,11 @@ fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
         .chunks_exact((framebuffer.width * bytes_per_pixel) as usize)
         .collect();
 
-    let mut solid_previous_tile: (bool, Vec<u8>) = (false, Vec::with_capacity(1));
+    /* Solid Tile Identification */
+    let mut solid_previous_tile: Vec<u8> = vec![];
+    let mut previous_scan_line: Vec<u8> = vec![];
+    let mut solid_tile = true;
+
     for hextile_ctr in 0..(v_tiles * h_tiles) {
         let mut tile_pixels: Vec<u8> = Vec::with_capacity(
             (HEXTILE_WIDTH * HEXTILE_HEIGHT) as usize 
@@ -76,46 +80,42 @@ fn encode(framebuffer: FrameBuffer) -> Vec<u8> {
                 if (h_start + (HEXTILE_HEIGHT as usize * bytes_per_pixel as usize)) > hscan_lines[hscan_line_ctr].len() { hscan_lines[hscan_line_ctr].len() } 
                 else { h_start + (HEXTILE_HEIGHT as usize * bytes_per_pixel as usize) };
 
-            tile_pixels.extend_from_slice(&hscan_lines[hscan_line_ctr][h_start..h_end]);
+            let scan_line = &hscan_lines[hscan_line_ctr][h_start..h_end];
+            tile_pixels.extend_from_slice(scan_line);
+
+            if previous_scan_line.len() == 0 {
+                /* This is the first Line */
+                previous_scan_line = scan_line.to_vec();
+            } else {
+                if scan_line != previous_scan_line {
+                    /* This is not a Solid Tile */
+                    solid_tile = false;
+                }
+            }
         }
 
-        let solid_hextile = solid_hextile_color(tile_pixels.clone(), bytes_per_pixel as usize);
-        if solid_hextile.0 == true {
-            if solid_hextile.1 != solid_previous_tile.1 {
-                hextiles.push(2_u8);
-                hextiles.extend_from_slice(solid_hextile.1.as_slice());
-            } else {
+        if solid_tile == true {
+            let mut solid_color: Vec<u8> = vec![];
+            for subpixel in 0..(bytes_per_pixel as usize) {
+                solid_color.push(tile_pixels[subpixel]);
+            }
+
+            if solid_color == solid_previous_tile {
                 /* Set No bits, color same as previous tile */
                 hextiles.push(0_u8);
+            } else {
+                hextiles.push(2_u8);
+                hextiles.extend_from_slice(&solid_color);
+
+                /* Update Previous Hextile (for Solid Color) */
+                solid_previous_tile = solid_color;
             }
         } else {
             hextiles.push(1_u8);
             hextiles.extend_from_slice(tile_pixels.as_slice());
         }
-
-        /* Update Previous Hextile (for Solid Color) */
-        solid_previous_tile = solid_hextile.clone();
     }
 
     /* Send Hextiles */
     hextiles
-}
-
-fn solid_hextile_color(tile: Vec<u8>, bytes_per_pixel: usize) -> (bool, Vec<u8>) {
-    let tile_chunks: Vec<&[u8]> = tile.chunks(bytes_per_pixel).collect();
-    let initial_color = tile_chunks[0];
-    let mut solid_color: bool = true;
-
-    for tile_chunk in tile_chunks {
-        if tile_chunk != initial_color {
-            solid_color = false;
-            break;
-        }
-    }
-
-    if solid_color == true {
-        (true, initial_color.to_vec())
-    } else {
-        (false, Vec::with_capacity(1))
-    }
 }

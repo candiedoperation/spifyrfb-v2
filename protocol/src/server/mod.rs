@@ -41,6 +41,7 @@ use tokio::{
         TcpListener, TcpStream,
     },
 };
+use uuid::Uuid;
 
 pub struct CreateOptions {
     pub ip_address: String, 
@@ -82,7 +83,7 @@ pub enum RFBAuthentication {
     Vnc(VNCAuth)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct PixelFormat {
     pub(crate) bits_per_pixel: u8,
     pub(crate) depth: u8,
@@ -252,13 +253,13 @@ async fn process_clientserver_message(
     client_tx: &mut WriteHalf<'_>,
     opcode: &[u8],
     buffer: &[u8],
+    pixelformat: PixelFormat,
+    zstream_id: String,
     wm: Arc<WindowManager>
 ) {
     match opcode[0] {
         ClientToServerMessage::SET_PIXEL_FORMAT => {
-            let _pixelformat_request: &[u8] = &buffer[4..];
-            /* SET PIXEL FORMAT IN FUTURE RELEASES */
-
+            /* Send Framebuffer Update */
             match wm.as_ref() {
                 #[cfg(target_os = "windows")]
                 WindowManager::WIN32(win32_server) => {
@@ -273,7 +274,8 @@ async fn process_clientserver_message(
                             0,
                             win32_monitor.monitor_devmode.dmPelsWidth as u16,
                             win32_monitor.monitor_devmode.dmPelsHeight as u16,
-                            client_rx.peer_addr().unwrap().to_string()
+                            pixelformat,
+                            zstream_id
                         ),
                     )
                     .await;
@@ -291,7 +293,8 @@ async fn process_clientserver_message(
                             0,
                             x11_screen.width_in_pixels,
                             x11_screen.height_in_pixels,
-                            client_rx.peer_addr().unwrap().to_string()
+                            pixelformat,
+                            zstream_id
                         ),
                     )
                     .await;
@@ -321,7 +324,8 @@ async fn process_clientserver_message(
                             y_position as i16,
                             width,
                             height,
-                            client_rx.peer_addr().unwrap().to_string()
+                            pixelformat,
+                            zstream_id
                         ),
                     )
                     .await;
@@ -338,7 +342,8 @@ async fn process_clientserver_message(
                             y_position as i16,
                             width,
                             height,
-                            client_rx.peer_addr().unwrap().to_string()
+                            pixelformat,
+                            zstream_id
                         ),
                     )
                     .await;
@@ -438,11 +443,20 @@ async fn process_clientserver_message(
 
 async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManager>) {
     /* Session Statics */
-    let peer_address = client.peer_addr().unwrap().to_string();
     let (mut client_rx, mut client_tx) = client.split();
 
-    /* Create Endpoint Specific ZLib Stream */
-    encoding_zlib::create_stream(peer_address.clone());
+    /* Create Endpoint Specific ZLib Stream, PixelFormat */
+    let zstream_id = Uuid::new_v4().to_string();
+    encoding_zlib::create_stream(zstream_id.clone());
+    
+    #[allow(unused_assignments)]
+    let mut pixel_format: PixelFormat = Default::default();
+
+    #[cfg(target_os = "windows")]
+    { pixel_format = win32::get_pixelformat() }
+
+    #[cfg(target_os = "linux")]
+    { pixel_format = x11::get_pixelformat() }
 
     loop {
         let mut opcode: [u8; 1] = [0; 1];
@@ -452,11 +466,32 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                 ClientToServerMessage::SET_PIXEL_FORMAT => {
                     let mut buffer: [u8; 19] = [0; 19];
                     client_rx.read_exact(&mut buffer).await.unwrap();
+                    
+                    /* Check if first three bytes are padding */
+                    if buffer[0] == 0 && buffer[1] == 0 && buffer[2] == 0 {
+                        let pfu = &buffer[3..];
+                        pixel_format = PixelFormat {
+                            bits_per_pixel: pfu[0],
+                            depth: pfu[1],
+                            big_endian_flag: pfu[2],
+                            true_color_flag: pfu[3],
+                            red_max: (pfu[4] as u16) << 8 | (pfu[5] as u16),
+                            green_max: (pfu[6] as u16) << 8 | (pfu[7] as u16),
+                            blue_max: (pfu[8] as u16) << 8 | (pfu[9] as u16),
+                            red_shift: pfu[10],
+                            green_shift: pfu[11],
+                            blue_shift: pfu[12],
+                            padding: [0, 0, 0],
+                        };
+                    } 
+
                     process_clientserver_message(
-                        &mut client_rx,
-                        &mut client_tx,
-                        &opcode,
-                        &buffer,
+                        &mut client_rx, 
+                        &mut client_tx, 
+                        &opcode, 
+                        &buffer, 
+                        pixel_format,
+                        zstream_id.clone(), 
                         wm.clone()
                     )
                     .await;
@@ -469,6 +504,8 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                         &mut client_tx,
                         &opcode,
                         &buffer,
+                        pixel_format,
+                        zstream_id.clone(),
                         wm.clone()
                     )
                     .await;
@@ -482,6 +519,8 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                         &mut client_tx,
                         &opcode,
                         &buffer,
+                        pixel_format,
+                        zstream_id.clone(),
                         wm.clone()
                     )
                     .await;
@@ -494,6 +533,8 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                         &mut client_tx,
                         &opcode,
                         &buffer,
+                        pixel_format,
+                        zstream_id.clone(),
                         wm.clone()
                     )
                     .await;
@@ -506,6 +547,8 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                         &mut client_tx,
                         &opcode,
                         &buffer,
+                        pixel_format.clone(),
+                        zstream_id.clone(),
                         wm.clone()
                     )
                     .await;
@@ -513,7 +556,7 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
                 _ => { /* EXCEPTION EVENT: CLIENT_CUT_TEXT */ }
             }
         } else {
-            encoding_zlib::flush_stream(peer_address);
+            encoding_zlib::flush_stream(zstream_id.clone());
             println!("Client Has Disconnected");
             break;
         }

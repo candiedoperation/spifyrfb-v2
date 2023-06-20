@@ -260,6 +260,7 @@ pub fn rectangle_framebuffer_update(
     y_position: i16,
     width: u16,
     height: u16,
+    pixelformat: PixelFormat,
     zstream_id: String
 ) -> FrameBufferUpdate {
     unsafe {
@@ -326,6 +327,31 @@ pub fn rectangle_framebuffer_update(
         Win32_Gdi::DeleteDC(compatible_dc);
         Win32_Gdi::ReleaseDC(Win32_Foundation::HWND(0), desktop_dc);
 
+        /* Define Shifts */
+        let red = (pixelformat.red_shift / 8) as usize;
+        let green = (pixelformat.green_shift / 8) as usize;
+        let blue = (pixelformat.blue_shift / 8) as usize;
+
+        /* Encode pixels according to PixelFormat */
+        let mut pixformat_data: Vec<u8> = Vec::with_capacity(pixel_data.len());
+        let pixel_chunks: Vec<&mut [u8]> = pixel_data.chunks_mut((WIN32_BITS_PER_PIXEL / 8) as usize).collect();
+
+        for pixel in pixel_chunks {            
+            let pixel_copy = pixel.to_owned();
+            pixel[red] = pixel_copy[2];
+            pixel[green] = pixel_copy[1];
+            pixel[blue] = pixel_copy[0];
+            
+            if encoding_type == RFBEncodingType::ZRLE {
+                /* Extend Encoded Data for ZRLE */
+                pixformat_data.extend_from_slice(&[
+                    pixel[0],
+                    pixel[1],
+                    pixel[2]
+                ]);
+            }
+        }
+
         let mut framebuffer_rectangles: Vec<FrameBufferRectangle> = vec![];
         let mut framebuffer_struct = FrameBuffer {
             x_position: x_position as u16,
@@ -345,6 +371,7 @@ pub fn rectangle_framebuffer_update(
             },
             RFBEncodingType::ZRLE => {
                 framebuffer_struct.encoding = RFBEncodingType::ZRLE;
+                framebuffer_struct.encoded_pixels = pixformat_data;
                 framebuffer_rectangles.push(encoding_zrle::get_pixel_data(framebuffer_struct, zstream_id));
             },
             RFBEncodingType::ZLIB => {
@@ -367,31 +394,33 @@ pub fn rectangle_framebuffer_update(
     }
 }
 
+pub fn get_pixelformat() -> server::PixelFormat {
+    PixelFormat {
+        bits_per_pixel: WIN32_BITS_PER_PIXEL,
+        depth: 24, /* WINDOWS EMULATES FOR TRUE-COLOR */
+        big_endian_flag: 1,
+        true_color_flag: 1,
+        red_max: 2_u16.pow(8) - 1,
+        green_max: 2_u16.pow(8) - 1,
+        blue_max: 2_u16.pow(8) - 1,
+        red_shift: 16,
+        green_shift: 8,
+        blue_shift: 0,
+        padding: [0, 0, 0]
+    }
+}
+
 pub fn get_display_struct(win32_monitor: Win32Monitor) -> server::RFBServerInit {
     unsafe {
         let mut hostname: [u16; 15] = [0; 15];
         Win32_WinSock::GetHostNameW(&mut hostname);
         let valid_hostname = hostname.iter().position(|&c| c as u8 == b'\0' ).unwrap_or(hostname.len());
         let valid_hostname: String = String::from_utf16_lossy(&hostname[0..valid_hostname]);
-
-        let pixel_format = PixelFormat {
-            bits_per_pixel: WIN32_BITS_PER_PIXEL,
-            depth: 24, /* WINDOWS EMULATES FOR TRUE-COLOR */
-            big_endian_flag: 1,
-            true_color_flag: 1,
-            red_max: 2_u16.pow(8) - 1,
-            green_max: 2_u16.pow(8) - 1,
-            blue_max: 2_u16.pow(8) - 1,
-            red_shift: 0,
-            green_shift: 0,
-            blue_shift: 0,
-            padding: [0, 0, 0]
-        };
     
         RFBServerInit {
             framebuffer_width: win32_monitor.monitor_devmode.dmPelsWidth as u16,
             framebuffer_height: win32_monitor.monitor_devmode.dmPelsHeight as u16,
-            server_pixelformat: pixel_format,
+            server_pixelformat: get_pixelformat(),
             name_length: valid_hostname.len() as u32,
             name_string: valid_hostname
         }
