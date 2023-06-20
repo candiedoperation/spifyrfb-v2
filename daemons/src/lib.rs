@@ -26,5 +26,5 @@ pub mod webapi;
 
 pub mod debug {
     #[allow(dead_code)]
-    pub(crate) const ENABLED: bool = true;
+    pub(crate) const ENABLED: bool = false;
 }

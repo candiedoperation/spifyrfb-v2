@@ -541,7 +541,7 @@ pub async fn create(options: WSCreateOptions) -> Result<(), Box<dyn Error>> {
     match TcpListener::bind(options.tcp_address).await {
         Ok(listener) => {
             let ws_address = listener.local_addr().unwrap();
-            println!("SpifyRFB Websocket Communications at {:?}\n", ws_address);
+            debug::l1(format!("SpifyRFB Websocket Communications at {:?}\n", ws_address));
 
             if options.spify_daemon {
                 /* Send IP Address Update to Daemon */
@@ -603,7 +603,7 @@ pub async fn create(options: WSCreateOptions) -> Result<(), Box<dyn Error>> {
 
                 tokio::spawn(async move {
                     /* Init Handshake */
-                    println!("HTTP/WS Connection Established: {:?}", client);
+                    debug::l1(format!("HTTP/WS Connection Established: {:?}", client));
 
                     let ws_stream: WebsocketStream;
                     if tls_acceptor.is_some() {
@@ -622,7 +622,7 @@ pub async fn create(options: WSCreateOptions) -> Result<(), Box<dyn Error>> {
             }
         }
         Err(err) => {
-            println!("Websocket IP Address Binding Failed -> {}", err.to_string());
+            debug::l1(format!("Websocket IP Address Binding Failed -> {}", err.to_string()));
             Err(err.into())
         }
     }

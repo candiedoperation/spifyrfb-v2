@@ -24,7 +24,7 @@ pub mod websocket;
 pub mod parser;
 pub mod ipc_client;
 
-use crate::server::{parser::GetBits, websocket::WSCreateOptions};
+use crate::{server::{parser::GetBits, websocket::WSCreateOptions}, debug};
 
 #[cfg(target_os = "windows")]
 use crate::win32;
@@ -302,7 +302,7 @@ async fn process_clientserver_message(
             }
         }
         ClientToServerMessage::SET_ENCODINGS => {
-            println!("Set Encodings Request");
+            debug::l1(format!("Set Encodings Request"));
         }
         ClientToServerMessage::FRAME_BUFFER_UPDATE_REQUEST => {
             /* let incremental: u8 = message[0]; */
@@ -565,7 +565,7 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
             }
         } else {
             encoding_zlib::flush_stream(zstream_id.clone());
-            println!("Client Has Disconnected");
+            debug::l1(format!("Client Has Disconnected"));
             break;
         }
     }
@@ -794,7 +794,7 @@ async fn init_handshake(mut client: TcpStream, wm: Arc<WindowManager>, auth: Opt
     match client.read_exact(&mut buf).await {
         Ok(protocol_index) => {
             if &buf[0..protocol_index] == b"RFB 003.008\n" {
-                println!("RFB Client agreed on V3.8");
+                debug::l1(format!("RFB Client agreed on V3.8"));
                 init_authentication_handshake(client, wm, auth).await;
             } else {
                 let rfb_error = create_rfb_error(String::from("Version not Supported"));
@@ -819,7 +819,7 @@ pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
     if tcplistener_result.is_ok() {
         let listener = tcplistener_result.unwrap();
         let tcp_address = listener.local_addr().unwrap();
-        println!("SpifyRFB is accepting connections on {:?}\n", tcp_address);
+        debug::l1(format!("SpifyRFB is accepting connections on {:?}\n", tcp_address));
         
         /* Define WindowManager Object */
         let wm_arc: Option<Arc<WindowManager>>;
@@ -893,7 +893,7 @@ pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
     
                 tokio::spawn(async move {
                     /* Init Handshake */
-                    println!("Connection Established: {:?}", client);
+                    debug::l1(format!("Connection Established: {:?}", client));
                     init_handshake(client, wm, auth_clone).await;
                 });
             }
@@ -903,7 +903,7 @@ pub async fn create(options: CreateOptions) -> Result<(), Box<dyn Error>> {
         }           
     } else {
         let err = tcplistener_result.err().unwrap();
-        println!("IP Address Binding Failed -> {}", err.to_string());
+        debug::l1(format!("IP Address Binding Failed -> {}", err.to_string()));
         return Err(err.into());
     }
 }

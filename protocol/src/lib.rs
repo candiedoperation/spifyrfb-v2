@@ -36,8 +36,9 @@ pub mod info {
 pub mod debug {
     use std::time::{SystemTime, UNIX_EPOCH, Duration};
 
+    pub(crate) const ENABLED: bool = false;
     pub fn l1(out: String) {
-        println!("{}", out);
+        if ENABLED == true { println!("{}", out); }
     }
 
     pub fn time_now() -> SystemTime {
