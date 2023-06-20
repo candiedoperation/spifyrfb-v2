@@ -50,3 +50,108 @@ pub mod debug {
             .unwrap()
     }
 }
+
+pub mod authenticate {
+    use hex_literal::hex;
+    use sha2::Digest;
+    use sha2::Sha256;
+
+    use crate::{config, server::parser};
+
+    pub fn server(hash: String) -> bool {
+        /* Define Variables */
+        let mut server_paired = false;
+        let config = config::read();
+
+        for server_hash in config.paired_servers {
+            /* Hash Server Key */
+            let mut hasher = Sha256::new();
+            hasher.update(hash.clone());
+            let hash_control = format!("{:X}", hasher.finalize());
+            
+            if server_hash.eq_ignore_ascii_case(&hash_control) {
+                server_paired = true;
+                break;
+            }
+        }
+
+        /* Return Result */
+        server_paired
+    }
+
+    pub fn server_from_headers(lossy_request: Vec<&str>) -> bool {
+        let server_key 
+                = parser::http::get_header(lossy_request, String::from("pairkey: "));
+        
+        if server_key.is_some() { return server(server_key.unwrap()); }
+        else { return false; }
+    }
+
+    pub fn server_from_json(json: serde_json::Value) -> bool {
+        match json {
+            serde_json::Value::Object(json) => {
+                let md5 = json.get("md5");
+                if md5.is_some() {
+                    let md5 = md5.unwrap();
+                    match md5 {
+                        serde_json::Value::String(md5) => {
+                            return server(md5.to_owned());
+                        },
+                        _ => {
+                            /* md5 is Invalid */
+                            return false;
+                        }
+                    }
+                } else {
+                    /* md5 is Empty */
+                    return false;
+                }
+            },
+            _ => {
+                /* Invalid Structure */
+                return false;
+            }
+        }
+    }
+}
+
+pub mod config {
+    use std::{fs, env, path::PathBuf};
+    use serde::{Serialize, Deserialize};
+    use serde_json::json;
+
+    #[derive(Serialize, Deserialize, Default)]
+    pub struct SpifyConfig {
+        pub paired_servers: Vec<String>
+    }
+
+    fn create(path: PathBuf) -> SpifyConfig {
+        let spify_config: SpifyConfig = Default::default();
+        fs::write(path, json!(spify_config).to_string()).unwrap();
+        spify_config
+    }
+
+    pub fn read() -> SpifyConfig {
+        /* Read Config File to String */
+        let mut spify_installpath = env::current_exe().unwrap();
+        spify_installpath.set_file_name("config.json");
+        
+        let config = fs::read_to_string(spify_installpath.clone());
+        if config.is_ok() {
+            let config = config.unwrap();
+            let config_json: SpifyConfig = serde_json::from_str(&config).unwrap();
+            return config_json;
+        } else {
+            return create(spify_installpath.clone());
+        }
+    }
+
+    pub fn new_paired_server(md5: String) {
+        let mut config = read();
+        config.paired_servers.push(md5);
+        
+        /* Create JSON */
+        let config_json = serde_json::to_string(&config).unwrap();
+        fs::write("config.json", config_json).unwrap();
+    }
+}

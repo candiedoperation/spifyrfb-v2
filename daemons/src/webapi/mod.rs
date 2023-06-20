@@ -21,7 +21,8 @@ use crate::windows;
 
 use serde::{Serialize, Deserialize};
 use serde_json::json;
-use axum::{Router, routing::get, response::{Response, IntoResponse}, http::StatusCode};
+use axum::{Router, routing::get, response::{Response, IntoResponse}, http::{StatusCode, Request}, middleware::{self, Next}};
+use spifyrfb_protocol::authenticate;
 
 #[derive(Serialize, Deserialize)]
 pub struct WebApiSession {
@@ -36,8 +37,29 @@ pub struct WebApiSession {
 fn get_routes() -> Router {
     Router::new()
     .route("/", get(root))
-    .route("/api/status", get(get_status))
-    .route("/api/sessions", get(get_sessions))
+    .route("/api/status", get(get_status).layer(middleware::from_fn(is_paired_server)))
+    .route("/api/sessions", get(get_sessions).layer(middleware::from_fn(is_paired_server)))
+}
+
+async fn is_paired_server<B>(
+    request: Request<B>,
+    next: Next<B>,
+) -> Response {
+    let server_key = request.headers().get("pairkey");
+    if server_key.is_some() {
+        let server_key = String::from_utf8_lossy(server_key.unwrap().as_bytes());
+        let auth_status = authenticate::server(server_key.to_string());
+
+        if auth_status == true {
+            /* Process Request */
+            next.run(request).await
+        } else {
+            /* Send Error */
+            (StatusCode::UNAUTHORIZED, "Server Not Paired").into_response()
+        }
+    } else {
+        (StatusCode::UNAUTHORIZED, "Pair Key is Not Present").into_response()
+    }
 }
 
 async fn root() -> Response {
@@ -49,7 +71,7 @@ async fn root() -> Response {
 
 async fn get_status() -> Response {
     /* Define Hostname */
-    #[allow(unused_mut)]
+    #[allow(unused_mut, unused_assignments)]
     let mut hostname = "Hostname Unknown".to_string();
 
     #[cfg(target_os = "windows")]
@@ -64,7 +86,7 @@ async fn get_status() -> Response {
 
 async fn get_sessions() -> Response {
     /* Define Active Sessions */
-    #[allow(unused_mut)]
+    #[allow(unused_mut, unused_assignments)]
     let mut sessions = json!([]);
    
     #[cfg(target_os = "windows")]

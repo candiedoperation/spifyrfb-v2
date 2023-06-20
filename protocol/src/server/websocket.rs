@@ -22,7 +22,7 @@ use crate::server::win32;
 #[cfg(target_os = "linux")]
 use crate::x11;
 
-use crate::{debug, server::{parser, ipc_client}};
+use crate::{debug, server::{parser, ipc_client}, authenticate};
 use std::{error::Error, time::Duration, sync::Arc, pin::Pin, process, env};
 use super::{parser::{websocket::OPCODE, GetBits}, FrameBufferUpdate, WindowManager, RFBEncodingType};
 use rustls::ServerConfig;
@@ -336,7 +336,7 @@ async fn handle_wsclient(mut ws_stream: WebsocketStream, proxy_address: String) 
     } else {
         if handshake_websocket_version == 0 {
             /* This is not a Websocket Upgrade Request: See parser.rs */
-            let api_response = get_api_response(parser::http::get_request_uri(handshake_request.clone()));
+            let api_response = get_api_response(buf[..bits_read].to_vec());
             ws_stream.write_all(api_response.0.as_bytes()).await.unwrap();
             ws_stream.write_all("\r\n".as_bytes()).await.unwrap();
             ws_stream.write_all(&api_response.1).await.unwrap();
@@ -361,13 +361,18 @@ async fn handle_wsclient(mut ws_stream: WebsocketStream, proxy_address: String) 
     }
 }
 
-fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
+fn get_api_response(req: Vec<u8>) -> (String, Vec<u8>) {
+    /* Parse URI */
+    let lossy_request = String::from_utf8_lossy(&req);
+    let lossy_request: Vec<&str> = lossy_request.split("\r\n").collect();
+    let uri = parser::http::get_request_uri(lossy_request.clone());
+
+    /* Define Fn */
     let mut payload: Vec<u8> = vec![];
     let default_message = format!("{} was not found  ", uri.1);
     let mut api_response: String = parser::http::response_from_headers(
         [
             "HTTP/1.1 404 Not Found",
-            format!("Content-length: {}", default_message.as_bytes().len()).as_str(),
             "Content-type: text/plain",
             "\n",
             default_message.as_str()
@@ -380,7 +385,6 @@ fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
             api_response = parser::http::response_from_headers(
                 [
                     "HTTP/1.1 200 OK",
-                    format!("Content-length: {}", response_message.as_bytes().len()).as_str(),
                     "Content-type: text/html",
                     "\n",
                     response_message
@@ -388,6 +392,15 @@ fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
                 .to_vec()
             );
         } else if uri.1.starts_with("/api/power") == true {
+            /* Authenticate Server */        
+            let auth = authenticate::server_from_headers(lossy_request.clone());
+            if auth == false {
+                return (
+                    parser::http::unauthorized_401(String::from("Server Not Paired")),
+                    vec![]
+                )
+            }
+
             #[allow(unused_mut)]
             let mut status: bool = false;
             
@@ -416,6 +429,16 @@ fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
                 .to_vec()
             );
         } else if uri.1 == "/api/screenshot" {
+            /* Authenticate Server */        
+            /* Authenticate Server */        
+            let auth = authenticate::server_from_headers(lossy_request.clone());
+            if auth == false {
+                return (
+                    parser::http::unauthorized_401(String::from("Server Not Paired")),
+                    vec![]
+                )
+            }
+
             /* Verify Client Auth in Future */
             let mut framebufferupdate: FrameBufferUpdate = Default::default();
 

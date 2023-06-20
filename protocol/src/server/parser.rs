@@ -139,6 +139,8 @@ impl GetBits for u64 {
 }
 
 pub mod http {
+    use serde_json::json;
+
     /* Define Globals */
     const HTTP_METHODS: [&str; 2] = ["GET", "POST"];
 
@@ -193,6 +195,40 @@ pub mod http {
         (http_method, http_uri)
     }
 
+    pub fn get_header(http_request: Vec<&str>, header: String) -> Option<String> {
+        let mut http_header: Option<String> = Option::None;
+        for request_header in http_request {
+            if request_header.contains(&header) {
+                http_header = Option::Some(
+                    request_header[header.len()..].to_string()
+                );
+                
+                /* Break Loop */
+                break;
+            }
+        }
+
+        http_header
+    }
+
+    pub fn get_http_payload(http_request: Vec<u8>) -> serde_json::Value {
+        /* Parse Lossy Request */
+        let lossy_request = String::from_utf8_lossy(&http_request);
+        let lossy_request: Vec<&str> = lossy_request.split("\r\n").collect();
+
+        /* Get Content Length */
+        let payload_length = get_header(lossy_request, String::from("Content-Length: ")).unwrap();
+        let payload_length = payload_length.parse::<u16>().unwrap();
+
+        let payload = &http_request[(http_request.len() - payload_length as usize)..];
+        if payload.len() > 0 {
+            let payload = String::from_utf8_lossy(payload);
+            serde_json::from_str(&payload).unwrap_or(json!({}))
+        } else {
+            json!({})
+        }
+    }
+
     pub fn get_websocket_version(http_request: Vec<&str>) -> u8 {
         let mut websocket_version: String = String::from("");
         for header in http_request {
@@ -230,6 +266,19 @@ pub mod http {
         }
 
         http_response
+    }
+
+    pub fn unauthorized_401(reason: String) -> String {
+        let response = reason;
+        response_from_headers(
+            [
+                "HTTP/1.1 401 Unauthorized",
+                "Content-type: text/plain",
+                "\n",
+                &response
+            ]
+            .to_vec()
+        )
     }
 }
 
