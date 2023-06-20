@@ -16,9 +16,11 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+#[cfg(target_os = "windows")]
+use crate::windows;
+
 use serde::{Serialize, Deserialize};
 use serde_json::json;
-use crate::windows;
 use axum::{Router, routing::get, response::{Response, IntoResponse}, http::StatusCode};
 
 #[derive(Serialize, Deserialize)]
@@ -47,6 +49,7 @@ async fn root() -> Response {
 
 async fn get_status() -> Response {
     /* Define Hostname */
+    #[allow(unused_mut)]
     let mut hostname = "Hostname Unknown".to_string();
 
     #[cfg(target_os = "windows")]
@@ -61,6 +64,7 @@ async fn get_status() -> Response {
 
 async fn get_sessions() -> Response {
     /* Define Active Sessions */
+    #[allow(unused_mut)]
     let mut sessions = json!([]);
    
     #[cfg(target_os = "windows")]

@@ -164,7 +164,7 @@ pub fn get_display_struct(x11_server: &X11Server, x11_screen: Screen) -> server:
     RFBServerInit {
         framebuffer_width: x11_screen.width_in_pixels,
         framebuffer_height: x11_screen.height_in_pixels,
-        server_pixelformat: get_pixelformat(),
+        server_pixelformat: get_pixelformat(x11_screen),
         name_length: (x11_server).connection.setup().vendor_len().into(),
         name_string: String::from_utf8(x11_server.connection.setup().clone().vendor).unwrap(),
     }
@@ -194,19 +194,33 @@ pub fn rectangle_framebuffer_update(
     .unwrap()
     .reply();
 
-    let mut pixel_data: Vec<u8> = vec![];
-    let pixel_chunks = x11_cookie.unwrap().data;
-    
+    let mut pixel_data = x11_cookie.unwrap().data;
     let bits_per_pixel = if x11_screen.root_depth == 24 { 32 } else { x11_screen.root_depth };
-    let pixel_chunks: Vec<&[u8]> = pixel_chunks.chunks((bits_per_pixel / 8) as usize).collect();
-    for pixel in pixel_chunks {
-        pixel_data.push(pixel[0]);
-        pixel_data.push(pixel[1]);
-        pixel_data.push(pixel[2]);
+    
+    /* Define Shifts */
+    let red = (pixelformat.red_shift / 8) as usize;
+    let green = (pixelformat.green_shift / 8) as usize;
+    let blue = (pixelformat.blue_shift / 8) as usize;
 
-        if encoding_type != RFBEncodingType::ZRLE {
-            /* Alpha Channel, ZRLE uses CPIXEL */
-            pixel_data.push(255);
+    let mut pixformat_data: Vec<u8> = Vec::with_capacity(pixel_data.len());
+    let pixel_chunks: Vec<&mut [u8]> = pixel_data.chunks_mut((bits_per_pixel / 8) as usize).collect();
+
+    for pixel in pixel_chunks {
+        let pixel_copy = pixel.to_owned();
+        pixel[red] = pixel_copy[2];
+        pixel[green] = pixel_copy[1];
+        pixel[blue] = pixel_copy[0];
+        
+        /* X11 Sets RGBA (Alpha) to Padding */
+        pixel[3] = 255;
+        
+        if encoding_type == RFBEncodingType::ZRLE {
+            /* Extend Encoded Data for ZRLE */
+            pixformat_data.extend_from_slice(&[
+                pixel[0],
+                pixel[1],
+                pixel[2]
+            ]);
         }
     }
 
@@ -229,7 +243,7 @@ pub fn rectangle_framebuffer_update(
         },
         RFBEncodingType::ZRLE => {
             framebuffer_struct.encoding = RFBEncodingType::ZRLE;
-            framebuffer_struct.encoded_pixels = pixel_data;
+            framebuffer_struct.encoded_pixels = pixformat_data;
             framebuffer_rectangles.push(encoding_zrle::get_pixel_data(framebuffer_struct, zstream_id));
         },
         RFBEncodingType::ZLIB => {

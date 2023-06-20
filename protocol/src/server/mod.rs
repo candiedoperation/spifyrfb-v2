@@ -249,7 +249,7 @@ async fn write_framebuffer_update_message(
 }
 
 async fn process_clientserver_message(
-    client_rx: &mut ReadHalf<'_>,
+    _client_rx: &mut ReadHalf<'_>,
     client_tx: &mut WriteHalf<'_>,
     opcode: &[u8],
     buffer: &[u8],
@@ -456,7 +456,15 @@ async fn init_clientserver_handshake(mut client: TcpStream, wm: Arc<WindowManage
     { pixel_format = win32::get_pixelformat() }
 
     #[cfg(target_os = "linux")]
-    { pixel_format = x11::get_pixelformat() }
+    {
+        match wm.as_ref() {
+            WindowManager::X11(x11_server) => {
+                pixel_format = x11::get_pixelformat(
+                    x11_server.displays[0].clone()
+                );
+            },
+        }
+    }
 
     loop {
         let mut opcode: [u8; 1] = [0; 1];

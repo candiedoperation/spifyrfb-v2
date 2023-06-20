@@ -16,8 +16,14 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use crate::{debug, server::{parser, ipc_client}, win32};
-use std::{error::Error, time::Duration, sync::Arc, pin::Pin, process, env, fs};
+#[cfg(target_os = "windows")]
+use crate::server::win32;
+
+#[cfg(target_os = "linux")]
+use crate::x11;
+
+use crate::{debug, server::{parser, ipc_client}};
+use std::{error::Error, time::Duration, sync::Arc, pin::Pin, process, env};
 use super::{parser::{websocket::OPCODE, GetBits}, FrameBufferUpdate, WindowManager, RFBEncodingType};
 use rustls::ServerConfig;
 use tokio::{
@@ -382,7 +388,9 @@ fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
                 .to_vec()
             );
         } else if uri.1.starts_with("/api/power") == true {
+            #[allow(unused_mut)]
             let mut status: bool = false;
+            
             if uri.1 == "/api/power/lock" {
                 #[cfg(target_os = "windows")]
                 { status = win32::lock_workstation(); }
@@ -438,6 +446,37 @@ fn get_api_response(uri: (String, String)) -> (String, Vec<u8>) {
                                 String::from("webapi")
                             );
                         }
+                    }
+                }
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                let x11_connection = x11::connect();
+                if x11_connection.is_ok() {
+                    let wm_arc = x11_connection.unwrap();
+                    match wm_arc.as_ref() {
+                        WindowManager::X11(x11_server) => {
+                            let primary_display = x11_server.displays[0].clone();
+                            let mut pixelformat = x11::get_pixelformat(primary_display.clone());
+
+                            /* Update Shifts in PixelFormat */
+                            pixelformat.red_shift = 0;
+                            pixelformat.green_shift = 8;
+                            pixelformat.blue_shift = 16;
+
+                            framebufferupdate = x11::rectangle_framebuffer_update(
+                                x11_server, 
+                                primary_display.clone(), 
+                                RFBEncodingType::RAW, 
+                                0, 
+                                0, 
+                                primary_display.clone().width_in_pixels, 
+                                primary_display.clone().height_in_pixels, 
+                                pixelformat,
+                                String::from("webapi")
+                            );
+                        },
                     }
                 }
             }

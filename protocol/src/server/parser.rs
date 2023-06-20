@@ -139,8 +139,6 @@ impl GetBits for u64 {
 }
 
 pub mod http {
-    use std::fs;
-
     /* Define Globals */
     const HTTP_METHODS: [&str; 2] = ["GET", "POST"];
 
