@@ -52,7 +52,6 @@ pub mod debug {
 }
 
 pub mod authenticate {
-    use hex_literal::hex;
     use sha2::Digest;
     use sha2::Sha256;
 
